@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 0x35D8:0x1496, original Moondrop FreeDSP only -->
+    <usb-device vendor-id="13784" product-id="5270" />
+</resources>

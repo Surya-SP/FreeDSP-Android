@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(freedsp_access C)
+add_library(freedsp_access SHARED access.c)
+target_compile_options(freedsp_access PRIVATE -Wall -Wextra -Werror)
+target_link_options(freedsp_access PRIVATE "-Wl,-z,max-page-size=16384")
