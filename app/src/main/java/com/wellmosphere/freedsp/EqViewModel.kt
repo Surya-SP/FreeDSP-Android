@@ -61,6 +61,10 @@ data class UiState(
             .firstOrNull { if (ours != null) it.eq.soundsLike(ours) else CableCoding.soundsLike(it.eq, records) }?.name
     }
     val activeOnCable get() = playing == active
+    /** The cable holds something this app wrote, even if that profile has been edited since. */
+    val cableHasOurWrite: Boolean by lazy { onCable != null && lastWritten?.let { CableCoding.matches(it, onCable) } == true }
+    /** Only an EQ from elsewhere (e.g. Moondrop's app) is "not saved here"; it can't appear mid-edit. */
+    val foreignOnCable get() = onCable != null && playing == null && !cableHasOurWrite
     val clips: Boolean by lazy { Response.clips(eq) }
 }
 

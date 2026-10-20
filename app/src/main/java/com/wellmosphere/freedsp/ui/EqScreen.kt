@@ -115,7 +115,7 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
             )
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 AnimatedVisibility(state.restorePending) { RestoreCard(busy = state.busy != null, onRestore = vm::restore) }
-                AnimatedVisibility(state.onCable != null && state.playing == null && state.busy == null) { ForeignEqCard(vm::saveCableAsProfile) }
+                AnimatedVisibility(state.foreignOnCable && state.busy == null) { ForeignEqCard(vm::saveCableAsProfile) }
                 Panel {
                     ResponseGraph(state.eq, state.jump, state.selected, pick, vm::updateBand,
                         Modifier.fillMaxWidth().height(230.dp), interactive = state.mode == Mode.PARAMETRIC,
@@ -205,6 +205,7 @@ private fun Header(state: UiState, onAllowAccess: () -> Unit, modifier: Modifier
                 state.cable == Cable.NEEDS_ACCESS -> Palette.Warm to "USB access needed"
                 state.playing != null -> Palette.Signal to "Playing \"${state.playing}\""
                 state.onCable == null -> Palette.Signal to "Cable connected"
+                state.cableHasOurWrite -> Palette.Warm to "Your changes aren't on the cable yet"
                 else -> Palette.Warm to "Playing an EQ that isn't saved here"
             }
             val color by animateColorAsState(dot, label = "status")

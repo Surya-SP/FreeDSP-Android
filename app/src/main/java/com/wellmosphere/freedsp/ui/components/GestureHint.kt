@@ -25,10 +25,12 @@ import com.wellmosphere.freedsp.ui.theme.Palette
 @Composable
 fun GestureHint(text: String, active: Boolean, modifier: Modifier = Modifier) {
     val dot by animateColorAsState(if (active) Palette.Signal else Palette.Line, label = "hintDot")
-    Row(modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(6.dp).clip(CircleShape).background(dot))
+    Row(modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.Top) {
+        Box(Modifier.padding(top = 6.dp).size(6.dp).clip(CircleShape).background(dot))
         AnimatedContent(text, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "hint") {
-            Text(it, style = MaterialTheme.typography.labelMedium, color = if (active) Palette.Text else Palette.Muted, modifier = Modifier.padding(start = 8.dp))
+            // Always two lines tall, so picking a band never shifts the controls under your finger.
+            Text(it, style = MaterialTheme.typography.labelMedium, color = if (active) Palette.Text else Palette.Muted,
+                minLines = 2, maxLines = 2, modifier = Modifier.padding(start = 8.dp))
         }
     }
 }
