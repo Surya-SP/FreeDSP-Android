@@ -17,7 +17,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import com.wellmosphere.freedsp.ui.components.PillSwitch
-import com.wellmosphere.freedsp.ui.components.PresetsSheet
+import com.wellmosphere.freedsp.ui.components.PresetsPage
 import com.wellmosphere.freedsp.ui.components.rememberBreath
 import com.wellmosphere.freedsp.ui.components.rememberShimmer
 import com.wellmosphere.freedsp.ui.components.springClick
@@ -26,6 +26,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
@@ -180,12 +182,14 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
             NoticeBar(state.notice, vm::dismissNotice)
             WriteBar(state, onAllowAccess = onAllowAccess, onWrite = { confirmWrite = true })
         }
+        AnimatedVisibility(presetsOpen, enter = slideInVertically { it / 4 } + fadeIn(), exit = slideOutVertically { it / 4 } + fadeOut()) {
+            PresetsPage(
+                owned = { p -> state.profiles.any { it.eq.soundsLike(p.eq) } },
+                onPick = { vm.applyPreset(it); presetsOpen = false }, onClose = { presetsOpen = false },
+            )
+        }
     }
 
-    if (presetsOpen) PresetsSheet(
-        owned = { p -> state.profiles.any { it.eq.soundsLike(p.eq) } },
-        onPick = { vm.applyPreset(it); presetsOpen = false }, onDismiss = { presetsOpen = false },
-    )
     naming?.let { n ->
         NameDialog(if (n.from == null) "New profile" else "Rename profile", n.from ?: "", if (n.from == null) "Create" else "Rename") { name ->
             naming = null
