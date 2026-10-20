@@ -9,6 +9,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +47,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.unit.dp
 import com.wellmosphere.freedsp.Cable
@@ -63,6 +66,7 @@ import com.wellmosphere.freedsp.UiState
 import com.wellmosphere.freedsp.eq.FilterType
 import com.wellmosphere.freedsp.eq.Limits
 import com.wellmosphere.freedsp.ui.components.BandPicker
+import com.wellmosphere.freedsp.ui.components.GestureHint
 import com.wellmosphere.freedsp.ui.components.GraphicEq
 import com.wellmosphere.freedsp.ui.components.NameDialog
 import com.wellmosphere.freedsp.ui.components.NoticeBar
@@ -88,10 +92,15 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
     var naming by remember { mutableStateOf<Naming?>(null) }
     var deleting by remember { mutableStateOf<String?>(null) }
     val clipboard = LocalClipboardManager.current
+    // A picked band owns every drag; the page only scrolls again once it's released by a tap elsewhere.
+    var picked by remember { mutableStateOf(false) }
+    LaunchedEffect(state.mode, state.active) { picked = false }
+    val pick = { i: Int -> vm.select(i); picked = true }
+    val band = state.eq.bands[state.selected]
 
-    Box(Modifier.fillMaxSize().background(Palette.Ink)) {
+    Box(Modifier.fillMaxSize().background(Palette.Ink).pointerInput(Unit) { detectTapGestures { picked = false } }) {
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding(),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState(), enabled = !picked).statusBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Header(state, onAllowAccess, Modifier.padding(horizontal = 20.dp)) { close ->
@@ -108,9 +117,16 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
                 AnimatedVisibility(state.restorePending) { RestoreCard(busy = state.busy != null, onRestore = vm::restore) }
                 AnimatedVisibility(state.onCable != null && state.playing == null && state.busy == null) { ForeignEqCard(vm::saveCableAsProfile) }
                 Panel {
-                    ResponseGraph(state.eq, state.jump, state.selected, vm::select, vm::updateBand,
-                        Modifier.fillMaxWidth().height(230.dp), interactive = state.mode == Mode.PARAMETRIC)
+                    ResponseGraph(state.eq, state.jump, state.selected, pick, vm::updateBand,
+                        Modifier.fillMaxWidth().height(230.dp), interactive = state.mode == Mode.PARAMETRIC,
+                        picked = picked && state.mode == Mode.PARAMETRIC, onRelease = { picked = false })
                     Spacer(Modifier.height(8.dp))
+                    if (state.mode == Mode.PARAMETRIC) {
+                        GestureHint(
+                            if (picked) "Band ${state.selected + 1} picked · drag anywhere on the graph · tap outside to scroll"
+                            else "Tap a point to pick it, then drag to move it", active = picked)
+                        Spacer(Modifier.height(6.dp))
+                    }
                     PreampLine(state)
                 }
                 ModeSwitch(state.mode, vm::setMode)
@@ -122,9 +138,15 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
                     },
                 ) { mode ->
                     when (mode) {
-                        Mode.SIMPLE -> Panel { GraphicEq(state.eq, vm::setGain) }
+                        Mode.SIMPLE -> Panel {
+                            GestureHint(
+                                if (picked) "${hz(band.freqHz)} Hz picked · slide up or down · double-tap for 0 · tap outside to scroll"
+                                else "Tap a slider to pick it, then slide", active = picked)
+                            Spacer(Modifier.height(10.dp))
+                            GraphicEq(state.eq, if (picked) state.selected else null, pick, vm::setGain)
+                        }
                         Mode.PARAMETRIC -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            BandPicker(state.eq, state.selected, vm::select)
+                            BandPicker(state.eq, state.selected, { vm.select(it); picked = false })
                             BandEditor(state, vm)
                         }
                     }

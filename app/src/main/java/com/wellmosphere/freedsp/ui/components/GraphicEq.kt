@@ -1,5 +1,6 @@
 package com.wellmosphere.freedsp.ui.components
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
@@ -29,59 +30,83 @@ import com.wellmosphere.freedsp.eq.Limits
 import com.wellmosphere.freedsp.ui.theme.Numbers
 import com.wellmosphere.freedsp.ui.theme.Palette
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
-/** Simple mode: one vertical gain slider per band, in half-dB steps. Double-tap a slider to zero it. */
+/**
+ * Simple mode: one vertical gain slider per band. Tap a slider to pick it ([picked]), then slide; only the
+ * picked slider responds to dragging, so the page can scroll freely otherwise. Double-tap the picked one to zero it.
+ */
 @Composable
-fun GraphicEq(eq: Eq, onGain: (Int, Double) -> Unit, modifier: Modifier = Modifier) {
+fun GraphicEq(eq: Eq, picked: Int?, onPick: (Int) -> Unit, onGain: (Int, Double) -> Unit, modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth()) {
         eq.bands.forEachIndexed { i, b ->
-            GainSlider(b.gainDb, hz(b.freqHz), { onGain(i, it) }, Modifier.weight(1f))
+            GainSlider(b.gainDb, hz(b.freqHz), isPicked = picked == i, dimmed = picked != null && picked != i,
+                onPick = { onPick(i) }, onChange = { onGain(i, it) }, modifier = Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun GainSlider(gain: Double, label: String, onChange: (Double) -> Unit, modifier: Modifier) {
+private fun GainSlider(
+    gain: Double, label: String, isPicked: Boolean, dimmed: Boolean,
+    onPick: () -> Unit, onChange: (Double) -> Unit, modifier: Modifier,
+) {
     val haptics = LocalHapticFeedback.current
     val current by rememberUpdatedState(gain)
+    val change by rememberUpdatedState(onChange)
     val shown by animateFloatAsState(gain.toFloat(), spring(stiffness = 900f), label = "gain")
+    val glow by animateFloatAsState(if (isPicked) 1f else 0f, label = "picked")
+    val alpha by animateFloatAsState(if (dimmed) 0.45f else 1f, label = "dim")
+    val labelColor by animateColorAsState(if (isPicked) Palette.Signal else Palette.Muted, label = "label")
     val range = Limits.GAIN
-    fun gainAt(y: Float, h: Float, pad: Float): Double {
-        val t = ((y - pad) / (h - 2 * pad)).coerceIn(0f, 1f)
-        return (range.endInclusive - t * (range.endInclusive - range.start)).let { (it * 2).roundToInt() / 2.0 }
-    }
-    fun set(v: Double) {
-        if (v == current) return
-        if (floor(v) != floor(current)) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        onChange(v)
-    }
+    val span = range.endInclusive - range.start
+
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             if (gain == 0.0) "0" else String.format(Locale.US, "%+.1f", gain),
             style = Numbers.copy(fontSize = MaterialTheme.typography.labelSmall.fontSize),
-            color = if (gain == 0.0) Palette.Muted else Palette.Signal,
+            color = (if (gain == 0.0 && !isPicked) Palette.Muted else Palette.Signal).copy(alpha = alpha),
         )
         Canvas(
             Modifier.fillMaxWidth().height(220.dp).padding(vertical = 6.dp)
-                .pointerInput(Unit) {
-                    val pad = 12.dp.toPx()
-                    detectVerticalDragGestures { change, _ -> change.consume(); set(gainAt(change.position.y, size.height.toFloat(), pad)) }
+                // Not picked: a tap picks it and drags fall through to the page scroll.
+                .pointerInput(isPicked) {
+                    if (isPicked) {
+                        val pad = 12.dp.toPx()
+                        var exact = current
+                        detectVerticalDragGestures(onDragStart = { exact = current }) { c, dy ->
+                            c.consume()
+                            exact = (exact - dy / (size.height - 2 * pad) * span).coerceIn(range)
+                            val snapped = (exact * 2).roundToInt() / 2.0
+                            if (snapped != current) {
+                                if (floor(snapped) != floor(current)) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                change(snapped)
+                            }
+                        }
+                    }
                 }
-                .pointerInput(Unit) { detectTapGestures(onDoubleTap = { set(0.0) }) },
+                .pointerInput(isPicked) {
+                    // Taps are consumed here, so tapping the picked slider never releases it.
+                    if (isPicked) detectTapGestures(onDoubleTap = { change(0.0) })
+                    else detectTapGestures(onTap = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onPick() })
+                },
         ) {
             val pad = 12.dp.toPx()
-            val track = 6.dp.toPx()
+            val track = (6 + 2 * glow).dp.toPx()
             val x = size.width / 2
-            fun yOf(g: Double) = (pad + (range.endInclusive - g) / (range.endInclusive - range.start) * (size.height - 2 * pad)).toFloat()
-            drawRoundRect(Palette.Raised, Offset(x - track / 2, pad), Size(track, size.height - 2 * pad), CornerRadius(track))
+            fun yOf(g: Double) = (pad + (range.endInclusive - g) / span * (size.height - 2 * pad)).toFloat()
+            if (glow > 0f) drawRoundRect(Palette.Signal.copy(alpha = 0.10f * glow), Offset(x - 16.dp.toPx(), 0f), Size(32.dp.toPx(), size.height), CornerRadius(16.dp.toPx()))
+            drawRoundRect(Palette.Raised.copy(alpha = alpha), Offset(x - track / 2, pad), Size(track, size.height - 2 * pad), CornerRadius(track))
             val zero = yOf(0.0); val y = yOf(shown.toDouble())
-            drawLine(Palette.Muted.copy(alpha = 0.5f), Offset(x - 9.dp.toPx(), zero), Offset(x + 9.dp.toPx(), zero), 1.5f)
-            if (shown != 0f) drawRoundRect(Palette.Signal, Offset(x - track / 2, minOf(zero, y)), Size(track, kotlin.math.abs(zero - y)), CornerRadius(track))
-            drawCircle(Palette.Ink, 11.dp.toPx(), Offset(x, y))
-            drawCircle(if (shown != 0f) Palette.Signal else Palette.Text, 8.dp.toPx(), Offset(x, y))
+            drawLine(Palette.Muted.copy(alpha = 0.5f * alpha), Offset(x - 9.dp.toPx(), zero), Offset(x + 9.dp.toPx(), zero), 1.5f)
+            if (shown != 0f) drawRoundRect(Palette.Signal.copy(alpha = alpha), Offset(x - track / 2, minOf(zero, y)), Size(track, abs(zero - y)), CornerRadius(track))
+            val r = (8 + 3 * glow).dp.toPx()
+            if (glow > 0f) drawCircle(Palette.Signal.copy(alpha = 0.25f * glow), r * 1.9f, Offset(x, y))
+            drawCircle(Palette.Ink, r + 3.dp.toPx(), Offset(x, y))
+            drawCircle((if (shown != 0f || isPicked) Palette.Signal else Palette.Text).copy(alpha = alpha), r, Offset(x, y))
         }
-        Text(label, style = MaterialTheme.typography.labelSmall, color = Palette.Muted)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = labelColor.copy(alpha = alpha))
     }
 }

@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wellmosphere.freedsp.eq.Band
 import com.wellmosphere.freedsp.eq.Eq
+import com.wellmosphere.freedsp.eq.Limits
 import com.wellmosphere.freedsp.eq.Response
 import com.wellmosphere.freedsp.ui.theme.Palette
 import kotlin.math.log10
@@ -41,9 +42,10 @@ private val LABEL_HZ = mapOf(100 to "100", 1000 to "1k", 10000 to "10k")
 private val CURVE_HZ = Response.logSpaced(181)
 
 /**
- * The EQ curve (bands only; the preamp is the dashed line). When [interactive], tap a node to pick a band
- * and drag it to move frequency and gain; otherwise bands show as quiet dots. [jump] changes animate the
- * whole curve; drags follow the finger exactly.
+ * The EQ curve (bands only; the preamp is the dashed line). When [interactive], tap a point to pick its band
+ * ([picked]); while picked, a drag anywhere on the graph moves it (relative to where you touch), and tapping
+ * empty space calls [onRelease]. Unpicked, drags fall through so the page can scroll. Outside interactive mode
+ * bands show as quiet dots. [jump] changes animate the whole curve.
  */
 @Composable
 fun ResponseGraph(
@@ -54,9 +56,12 @@ fun ResponseGraph(
     onMove: (Int, Band) -> Unit,
     modifier: Modifier = Modifier,
     interactive: Boolean = true,
+    picked: Boolean = false,
+    onRelease: () -> Unit = {},
 ) {
     val shown = rememberEqTransition(eq, jump)
     val latest by rememberUpdatedState(eq)
+    val band by rememberUpdatedState(selected)
     val haptics = LocalHapticFeedback.current
     val text = rememberTextMeasurer()
     val pulse by animateFloatAsState(selected.toFloat(), tween(220), label = "selection")
@@ -65,38 +70,42 @@ fun ResponseGraph(
         if (!interactive) modifier else modifier
             .pointerInput(Unit) {
                 detectTapGestures { p ->
-                    nearest(latest, p, size.width.toFloat(), size.height.toFloat(), 40.dp.toPx())?.let {
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); onSelect(it)
-                    }
+                    val hit = nearest(latest, p, size.width.toFloat(), size.height.toFloat(), 40.dp.toPx())
+                    if (hit != null) { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onSelect(hit) } else onRelease()
                 }
             }
-            .pointerInput(Unit) {
-                var active = -1
-                detectDragGestures(
-                    onDragStart = { p ->
-                        active = nearest(latest, p, size.width.toFloat(), size.height.toFloat(), 48.dp.toPx()) ?: -1
-                        if (active >= 0) { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onSelect(active) }
-                    },
-                    onDragEnd = { active = -1 },
-                    onDragCancel = { active = -1 },
-                ) { change, _ ->
-                    if (active < 0) return@detectDragGestures
+            .pointerInput(picked) {
+                if (!picked) return@pointerInput
+                var x = 0f; var y = 0f
+                detectDragGestures(onDragStart = {
+                    val b = latest.bands[band]
+                    x = xOf(b.freqHz, size.width.toFloat()); y = yOf(b.gainDb, size.height.toFloat())
+                }) { change, delta ->
                     change.consume()
                     val w = size.width.toFloat(); val h = size.height.toFloat()
-                    val band = latest.bands[active]
-                    onMove(active, band.copy(freqHz = freqAtX(change.position.x, w), gainDb = gainAtY(change.position.y, h)))
+                    x = (x + delta.x).coerceIn(0f, w); y = (y + delta.y).coerceIn(0f, h)
+                    onMove(band, latest.bands[band].copy(freqHz = freqAtX(x, w), gainDb = gainAtY(y, h)))
                 }
             },
     ) {
+        outOfRange()
         grid(text)
         curve(shown)
         preamp(shown.preampDb)
         shown.bands.forEachIndexed { i, b ->
-            if (interactive) node(i, b, isSelected = i == selected, emphasis = (1f - kotlin.math.abs(pulse - i)).coerceIn(0f, 1f), text = text)
+            if (interactive) node(i, b, isSelected = i == selected, emphasis = (1f - kotlin.math.abs(pulse - i)).coerceIn(0f, 1f),
+                lifted = picked && i == selected, text = text)
             else drawCircle(if (b.gainDb == 0.0) Palette.Muted.copy(alpha = 0.6f) else Palette.Signal, 3.5.dp.toPx(),
                 Offset(xOf(b.freqHz, size.width), yOf(b.gainDb, size.height)))
         }
     }
+}
+
+/** The cable only EQs 60 Hz–10 kHz; shade what lies outside. */
+private fun DrawScope.outOfRange() {
+    val lo = xOf(Limits.FREQ.start, size.width); val hi = xOf(Limits.FREQ.endInclusive, size.width)
+    drawRect(Palette.Ink.copy(alpha = 0.35f), Offset.Zero, androidx.compose.ui.geometry.Size(lo, size.height))
+    drawRect(Palette.Ink.copy(alpha = 0.35f), Offset(hi, 0f), androidx.compose.ui.geometry.Size(size.width - hi, size.height))
 }
 
 private fun xOf(f: Double, w: Float) = (log10(f / 20.0) / 3.0 * w).toFloat()
@@ -143,9 +152,10 @@ private fun DrawScope.preamp(db: Double) {
     drawLine(Palette.Warm.copy(alpha = 0.8f), Offset(0f, y), Offset(size.width, y), 1.5f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)))
 }
 
-private fun DrawScope.node(i: Int, b: Band, isSelected: Boolean, emphasis: Float, text: androidx.compose.ui.text.TextMeasurer) {
+private fun DrawScope.node(i: Int, b: Band, isSelected: Boolean, emphasis: Float, lifted: Boolean, text: androidx.compose.ui.text.TextMeasurer) {
     val c = Offset(xOf(b.freqHz, size.width), yOf(b.gainDb, size.height))
-    val r = (9 + 4 * emphasis).dp.toPx()
+    val r = (9 + 4 * emphasis + if (lifted) 3 else 0).dp.toPx()
+    if (lifted) drawCircle(Palette.Signal.copy(alpha = 0.12f), r * 3.2f, c)
     if (isSelected) drawCircle(Palette.Signal.copy(alpha = 0.18f), r * 2.1f, c)
     drawCircle(if (isSelected) Palette.Signal else Palette.Raised, r, c)
     drawCircle(if (isSelected) Palette.Signal else Palette.Muted, r, c, style = Stroke(1.5.dp.toPx()))
