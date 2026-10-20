@@ -1,6 +1,26 @@
 package com.wellmosphere.freedsp.ui
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import com.wellmosphere.freedsp.ui.components.PillSwitch
+import com.wellmosphere.freedsp.ui.components.PresetsSheet
+import com.wellmosphere.freedsp.ui.components.rememberBreath
+import com.wellmosphere.freedsp.ui.components.rememberShimmer
+import com.wellmosphere.freedsp.ui.components.springClick
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
@@ -33,7 +53,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -41,9 +60,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -91,6 +107,7 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
     var confirmWrite by rememberSaveable { mutableStateOf(false) }
     var naming by remember { mutableStateOf<Naming?>(null) }
     var deleting by remember { mutableStateOf<String?>(null) }
+    var presetsOpen by rememberSaveable { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
     // A picked band owns every drag; the page only scrolls again once it's released by a tap elsewhere.
     var picked by remember { mutableStateOf(false) }
@@ -99,6 +116,7 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
     val band = state.eq.bands[state.selected]
 
     Box(Modifier.fillMaxSize().background(Palette.Ink).pointerInput(Unit) { detectTapGestures { picked = false } }) {
+        AmbientGlow(Modifier.fillMaxWidth().height(520.dp))
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState(), enabled = !picked).statusBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -109,7 +127,7 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
                 DropdownMenuItem(text = { Text("Read the cable again") }, enabled = state.cable == Cable.READY && state.busy == null, onClick = { close(); vm.read() })
             }
             ProfileBar(
-                state.profiles, state.active, state.playing, onSelect = vm::switchTo, onNew = { naming = Naming(null) },
+                state.profiles, state.active, state.playing, onSelect = vm::switchTo, onNew = { naming = Naming(null) }, onPresets = { presetsOpen = true },
                 actions = ProfileActions(rename = { naming = Naming(it) }, duplicate = vm::duplicate, export = { onExport() }, delete = { deleting = it }),
                 modifier = Modifier.padding(start = 20.dp),
             )
@@ -129,7 +147,7 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
                     }
                     PreampLine(state)
                 }
-                ModeSwitch(state.mode, vm::setMode)
+                PillSwitch(listOf("Simple", "Parametric"), state.mode.ordinal, { vm.setMode(Mode.entries[it]) })
                 AnimatedContent(
                     state.mode, label = "mode",
                     transitionSpec = {
@@ -164,6 +182,10 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
         }
     }
 
+    if (presetsOpen) PresetsSheet(
+        owned = { p -> state.profiles.any { it.eq.soundsLike(p.eq) } },
+        onPick = { vm.applyPreset(it); presetsOpen = false }, onDismiss = { presetsOpen = false },
+    )
     naming?.let { n ->
         NameDialog(if (n.from == null) "New profile" else "Rename profile", n.from ?: "", if (n.from == null) "Create" else "Rename") { name ->
             naming = null
@@ -209,8 +231,10 @@ private fun Header(state: UiState, onAllowAccess: () -> Unit, modifier: Modifier
                 else -> Palette.Warm to "Playing an EQ that isn't saved here"
             }
             val color by animateColorAsState(dot, label = "status")
+            // Breathes while the cable is playing what you see; steady otherwise.
+            val glow = if (state.activeOnCable) rememberBreath() else 1f
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(color))
+                Box(Modifier.size(8.dp).graphicsLayer { alpha = glow }.clip(CircleShape).background(color))
                 AnimatedContent(line, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "statusText") {
                     Text(it, style = MaterialTheme.typography.labelMedium, color = Palette.Muted, maxLines = 1, modifier = Modifier.padding(start = 8.dp))
                 }
@@ -251,10 +275,13 @@ private fun PreampLine(state: UiState) = Text(
     modifier = Modifier.padding(horizontal = 4.dp),
 )
 
+/** A slow, faint drift of the accent colour behind the top of the screen. */
 @Composable
-private fun ModeSwitch(mode: Mode, onChange: (Mode) -> Unit) = SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-    listOf(Mode.SIMPLE to "Simple", Mode.PARAMETRIC to "Parametric").forEachIndexed { i, (m, label) ->
-        SegmentedButton(selected = mode == m, onClick = { onChange(m) }, shape = SegmentedButtonDefaults.itemShape(i, 2), icon = {}) { Text(label) }
+private fun AmbientGlow(modifier: Modifier) {
+    val t by rememberInfiniteTransition(label = "ambient").animateFloat(0f, 1f, infiniteRepeatable(tween(14_000), RepeatMode.Reverse), label = "drift")
+    Canvas(modifier) {
+        drawRect(Brush.radialGradient(listOf(Palette.Signal.copy(alpha = 0.10f), Color.Transparent),
+            center = Offset(size.width * (0.2f + 0.6f * t), size.height * 0.35f), radius = size.width * 0.9f))
     }
 }
 
@@ -264,12 +291,7 @@ private fun BandEditor(state: UiState, vm: EqViewModel) {
     val band = state.eq.bands[i]
     Panel {
         Text("Band ${i + 1}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 10.dp))
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            FilterType.entries.forEachIndexed { n, type ->
-                SegmentedButton(selected = band.type == type, onClick = { vm.updateBand(i, band.copy(type = type)) },
-                    shape = SegmentedButtonDefaults.itemShape(n, FilterType.entries.size), icon = {}) { Text(type.label) }
-            }
-        }
+        PillSwitch(FilterType.entries.map { it.label }, band.type.ordinal, { vm.updateBand(i, band.copy(type = FilterType.entries[it])) }, height = 42.dp)
         Spacer(Modifier.height(12.dp))
         ValueControl("Frequency", band.freqHz, display = { "${hz(it)} Hz" },
             toSlider = { (log10(it / 20) / 3).toFloat() }, fromSlider = { 20 * 10.0.pow(it * 3.0) },
@@ -300,16 +322,32 @@ private fun WriteBar(state: UiState, onAllowAccess: () -> Unit, onWrite: () -> U
         state.activeOnCable -> "\"${state.active}\" is on your cable  ✓" to null
         else -> "Write \"${state.active}\" to cable" to onWrite
     }
-    Button(
-        onClick = { action?.invoke() }, enabled = action != null,
-        modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(20.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = Palette.Signal, contentColor = Palette.Ink,
-            disabledContainerColor = Palette.Raised, disabledContentColor = if (state.activeOnCable) Palette.Signal else Palette.Muted),
+    // A soft pop and a buzz when a write lands, never on launch.
+    val haptics = LocalHapticFeedback.current
+    val pop = remember { Animatable(1f) }
+    var seen by remember { mutableStateOf(state.lastWritten) }
+    LaunchedEffect(state.lastWritten) {
+        if (state.lastWritten != seen) {
+            seen = state.lastWritten
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            pop.animateTo(1.04f, tween(120)); pop.animateTo(1f, spring(dampingRatio = 0.4f, stiffness = 400f))
+        }
+    }
+    val fill = when {
+        state.busy != null -> rememberShimmer(Palette.Raised, Palette.Signal.copy(alpha = 0.28f))
+        action != null -> SolidColor(Palette.Signal)
+        else -> SolidColor(Palette.Raised)
+    }
+    val text = if (action != null) Palette.Ink else if (state.activeOnCable) Palette.Signal else Palette.Muted
+    Row(
+        Modifier.fillMaxWidth().height(58.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }
+            .clip(RoundedCornerShape(20.dp)).background(fill)
+            .then(if (action != null) Modifier.springClick(onClick = action) else Modifier),
+        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (state.busy != null) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Palette.Muted)
+        if (state.busy != null) CircularProgressIndicator(Modifier.size(18.dp).padding(end = 0.dp), strokeWidth = 2.dp, color = Palette.Text)
         AnimatedContent(label, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "write") {
-            Text(it, style = MaterialTheme.typography.labelLarge, maxLines = 1, modifier = Modifier.padding(start = if (state.busy != null) 10.dp else 0.dp))
+            Text(it, style = MaterialTheme.typography.labelLarge, color = text, maxLines = 1, modifier = Modifier.padding(start = if (state.busy != null) 10.dp else 0.dp))
         }
     }
 }

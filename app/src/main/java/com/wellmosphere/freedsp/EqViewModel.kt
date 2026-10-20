@@ -12,6 +12,7 @@ import com.wellmosphere.freedsp.cable.Gen1
 import com.wellmosphere.freedsp.cable.HidTakeover
 import com.wellmosphere.freedsp.eq.Band
 import com.wellmosphere.freedsp.eq.Eq
+import com.wellmosphere.freedsp.eq.Preset
 import com.wellmosphere.freedsp.eq.Response
 import com.wellmosphere.freedsp.eq.SquigText
 import com.wellmosphere.freedsp.store.Profile
@@ -192,6 +193,11 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(active = name, jump = it.jump + 1) }
     }
     fun newProfile(name: String) = addProfile(unique(name.trim().ifEmpty { "New EQ" }), Eq.FLAT)
+    /** Your copy of a preset: reuse the one that still sounds like it, otherwise start a fresh copy. */
+    fun applyPreset(p: Preset) {
+        val existing = _state.value.profiles.firstOrNull { (it.name == p.name || it.name.startsWith("${p.name} ")) && it.eq.soundsLike(p.eq) }
+        if (existing != null) switchTo(existing.name) else addProfile(unique(p.name), p.eq)
+    }
     fun duplicate(name: String) = _state.value.profiles.firstOrNull { it.name == name }?.let { addProfile(unique("${it.name} copy"), it.eq) }
     fun rename(from: String, to: String) {
         val clean = to.trim()

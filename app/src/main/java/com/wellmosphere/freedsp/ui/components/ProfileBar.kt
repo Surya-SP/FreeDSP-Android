@@ -1,10 +1,8 @@
 package com.wellmosphere.freedsp.ui.components
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -46,7 +44,6 @@ class ProfileActions(
  * Profiles as chips: tap to switch, press and hold for more. A dot marks the one the cable is playing.
  * The last chip makes a new profile.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ProfileBar(
     profiles: List<Profile>,
@@ -54,11 +51,19 @@ fun ProfileBar(
     playing: String?,
     onSelect: (String) -> Unit,
     onNew: () -> Unit,
+    onPresets: () -> Unit,
     actions: ProfileActions,
     modifier: Modifier = Modifier,
 ) {
     val haptics = LocalHapticFeedback.current
     LazyRow(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        item(key = "+presets") {
+            Text(
+                "✦  Presets", style = MaterialTheme.typography.labelLarge, color = Palette.Ink,
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(Palette.Signal)
+                    .springClick(onClick = onPresets).padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+        }
         items(profiles, key = { it.name }) { p ->
             var menu by remember { mutableStateOf(false) }
             val on = p.name == active
@@ -68,7 +73,7 @@ fun ProfileBar(
                 Row(
                     Modifier.clip(RoundedCornerShape(50)).background(bg)
                         .border(1.dp, if (on) bg else Palette.Line, RoundedCornerShape(50))
-                        .combinedClickable(onClick = { onSelect(p.name) }, onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); menu = true })
+                        .springClick(onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); menu = true }) { onSelect(p.name) }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -90,7 +95,7 @@ fun ProfileBar(
             Text(
                 "+  New", style = MaterialTheme.typography.labelLarge, color = Palette.Signal,
                 modifier = Modifier.clip(RoundedCornerShape(50)).border(1.dp, Palette.Signal.copy(alpha = 0.4f), RoundedCornerShape(50))
-                    .combinedClickable(onClick = onNew).padding(horizontal = 16.dp, vertical = 10.dp),
+                    .springClick(onClick = onNew).padding(horizontal = 16.dp, vertical = 10.dp),
             )
         }
     }

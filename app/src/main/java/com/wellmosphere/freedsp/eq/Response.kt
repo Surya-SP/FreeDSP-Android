@@ -42,6 +42,9 @@ object Response {
         return DoubleArray(freqs.size) { i -> active.sumOf { magnitudeDb(it, freqs[i]) } }
     }
 
+    /** What you hear at one frequency: all bands plus the preamp. */
+    fun bandDbTotal(eq: Eq, at: Double) = curve(eq, doubleArrayOf(at))[0] + eq.preampDb
+
     /** Log-spaced frequency for t in 0..1 across 20 Hz–20 kHz. */
     fun freqAt(t: Double) = 20.0 * 1000.0.pow(t)
     fun logSpaced(points: Int) = DoubleArray(points) { freqAt(it / (points - 1.0)) }

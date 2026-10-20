@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -65,6 +66,10 @@ fun ResponseGraph(
     val haptics = LocalHapticFeedback.current
     val text = rememberTextMeasurer()
     val pulse by animateFloatAsState(selected.toFloat(), tween(220), label = "selection")
+    // The curve draws itself in, left to right, the first time the graph appears.
+    val reveal = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { reveal.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) }
+    val bubble by animateFloatAsState(if (picked) 1f else 0f, tween(180), label = "bubble")
 
     Canvas(
         if (!interactive) modifier else modifier
@@ -90,7 +95,7 @@ fun ResponseGraph(
     ) {
         outOfRange()
         grid(text)
-        curve(shown)
+        clipRect(right = size.width * reveal.value) { curve(shown) }
         preamp(shown.preampDb)
         shown.bands.forEachIndexed { i, b ->
             if (interactive) node(i, b, isSelected = i == selected, emphasis = (1f - kotlin.math.abs(pulse - i)).coerceIn(0f, 1f),
@@ -98,7 +103,21 @@ fun ResponseGraph(
             else drawCircle(if (b.gainDb == 0.0) Palette.Muted.copy(alpha = 0.6f) else Palette.Signal, 3.5.dp.toPx(),
                 Offset(xOf(b.freqHz, size.width), yOf(b.gainDb, size.height)))
         }
+        if (interactive && bubble > 0f) valueBubble(shown.bands[selected], bubble, text)
     }
+}
+
+/** "909 Hz · −3.0 dB" floating above the picked point (below it near the top edge). */
+private fun DrawScope.valueBubble(b: Band, alpha: Float, text: androidx.compose.ui.text.TextMeasurer) {
+    val label = text.measure("${hz(b.freqHz)} Hz · ${if (b.gainDb > 0) "+" else ""}${String.format(java.util.Locale.US, "%.1f", b.gainDb)} dB",
+        TextStyle(color = Palette.Ink.copy(alpha = alpha), fontSize = 12.sp))
+    val c = Offset(xOf(b.freqHz, size.width), yOf(b.gainDb, size.height))
+    val w = label.size.width + 20.dp.toPx(); val h = label.size.height + 10.dp.toPx()
+    val above = c.y - 30.dp.toPx() - h > 0
+    val top = if (above) c.y - 26.dp.toPx() - h else c.y + 26.dp.toPx()
+    val left = (c.x - w / 2).coerceIn(4f, size.width - w - 4f)
+    drawRoundRect(Palette.Signal.copy(alpha = alpha), Offset(left, top), androidx.compose.ui.geometry.Size(w, h), androidx.compose.ui.geometry.CornerRadius(h / 2))
+    drawText(label, topLeft = Offset(left + 10.dp.toPx(), top + 5.dp.toPx()))
 }
 
 /** The cable only EQs 60 Hz–10 kHz; shade what lies outside. */
