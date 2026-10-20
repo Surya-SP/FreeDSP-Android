@@ -1,9 +1,11 @@
 package com.wellmosphere.freedsp.ui.theme
 
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -26,6 +28,8 @@ object Palette {
 private val scheme = darkColorScheme(
     primary = Palette.Signal, onPrimary = Palette.Ink,
     secondary = Palette.Warm, onSecondary = Palette.Ink,
+    // Tonal buttons and the selected segment: a quiet mint, never Material's default purple.
+    secondaryContainer = Color(0xFF1E3A33), onSecondaryContainer = Palette.Signal,
     background = Palette.Ink, onBackground = Palette.Text,
     surface = Palette.Panel, onSurface = Palette.Text,
     surfaceVariant = Palette.Raised, onSurfaceVariant = Palette.Muted,
@@ -48,4 +52,7 @@ private val type = Typography(
 val Numbers = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, fontSize = 15.sp)
 
 @Composable
-fun FreeDspTheme(content: @Composable () -> Unit) = MaterialTheme(colorScheme = scheme, typography = type, content = content)
+fun FreeDspTheme(content: @Composable () -> Unit) = MaterialTheme(colorScheme = scheme, typography = type) {
+    // Default text and icon colour for everything drawn outside a Material surface.
+    CompositionLocalProvider(LocalContentColor provides Palette.Text, content = content)
+}
