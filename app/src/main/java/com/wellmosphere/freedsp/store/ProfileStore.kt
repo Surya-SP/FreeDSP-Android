@@ -10,13 +10,15 @@ import java.io.File
 data class Profile(val name: String, val eq: Eq)
 
 /**
- * Saved profiles plus the exact EQ last written to the cable. A read only shows whole-dB labels and no preamp,
- * so when the cable's records match [lastWritten] the app shows that exact version instead.
- * One JSON file, replaced through a temp file so a crash can't leave half of it.
+ * Profiles (in the order they were made), which one is active, the editor mode, and the exact EQ last
+ * written to the cable. A read only returns whole-dB labels and no preamp, so [lastWritten] is how the
+ * app knows the cable is playing a profile exactly. One JSON file, replaced through a temp file.
  */
 class ProfileStore(dir: File) {
     private val file = File(dir, "profiles.json")
     var profiles: List<Profile> = emptyList(); private set
+    var active: String? = null; private set
+    var mode: String? = null; private set
     var lastWritten: Eq? = null; private set
     var verifiedWrites = 0; private set
 
@@ -24,21 +26,33 @@ class ProfileStore(dir: File) {
         runCatching {
             val root = JSONObject(file.readText())
             profiles = root.getJSONArray("profiles").let { a -> (0 until a.length()).map { profile(a.getJSONObject(it)) } }
+            active = root.optString("active").ifEmpty { null }
+            mode = root.optString("mode").ifEmpty { null }
             lastWritten = root.optJSONObject("lastWritten")?.let(::eq)
             verifiedWrites = root.optInt("verifiedWrites")
         }
     }
 
-    fun save(name: String, eq: Eq) {
-        profiles = (profiles.filter { it.name != name } + Profile(name, eq)).sortedBy { it.name.lowercase() }
+    /** Adds a profile, or replaces the one with the same name in place. */
+    @Synchronized fun put(name: String, eq: Eq) {
+        profiles = if (profiles.any { it.name == name }) profiles.map { if (it.name == name) Profile(name, eq) else it }
+            else profiles + Profile(name, eq)
         persist()
     }
-    fun delete(name: String) { profiles = profiles.filter { it.name != name }; persist() }
-    fun written(eq: Eq) { lastWritten = eq; verifiedWrites++; persist() }
+    @Synchronized fun rename(from: String, to: String) {
+        profiles = profiles.map { if (it.name == from) it.copy(name = to) else it }
+        if (active == from) active = to
+        persist()
+    }
+    @Synchronized fun delete(name: String) { profiles = profiles.filter { it.name != name }; persist() }
+    @Synchronized fun setActive(name: String) { active = name; persist() }
+    @Synchronized fun setMode(value: String) { mode = value; persist() }
+    @Synchronized fun written(eq: Eq) { lastWritten = eq; verifiedWrites++; persist() }
 
     private fun persist() {
         val root = JSONObject()
             .put("profiles", JSONArray(profiles.map { JSONObject().put("name", it.name).put("eq", json(it.eq)) }))
+            .put("active", active ?: "").put("mode", mode ?: "")
             .put("lastWritten", lastWritten?.let(::json) ?: JSONObject.NULL)
             .put("verifiedWrites", verifiedWrites)
         val temp = File(file.parentFile, "profiles.tmp")

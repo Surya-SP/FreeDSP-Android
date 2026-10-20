@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -30,8 +31,11 @@ class MainActivity : ComponentActivity() {
 
     private val openFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@registerForActivityResult
+        val name = runCatching {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }.getOrNull()
         runCatching { contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() } }
-            .onSuccess(vm::import).onFailure { vm.say("Couldn't open that file", true) }
+            .onSuccess { vm.import(it, name) }.onFailure { vm.say("Couldn't open that file", true) }
     }
     private val saveFile = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         uri ?: return@registerForActivityResult
@@ -51,7 +55,7 @@ class MainActivity : ComponentActivity() {
                 val state by vm.state.collectAsStateWithLifecycle()
                 EqScreen(state, vm, onAllowAccess = ::askForAccess,
                     onImport = { openFile.launch(arrayOf("text/*", "application/octet-stream")) },
-                    onExport = { saveFile.launch("FreeDSP EQ.txt") })
+                    onExport = { saveFile.launch(vm.exportName) })
             }
         }
     }

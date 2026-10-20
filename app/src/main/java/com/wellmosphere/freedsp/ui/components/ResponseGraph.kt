@@ -38,10 +38,12 @@ import kotlin.math.pow
 private const val RANGE_DB = 12.0
 private val GRID_HZ = listOf(50, 100, 200, 500, 1000, 2000, 5000, 10000)
 private val LABEL_HZ = mapOf(100 to "100", 1000 to "1k", 10000 to "10k")
+private val CURVE_HZ = Response.logSpaced(181)
 
 /**
- * The EQ curve (bands only; the preamp is the dashed line). Tap a node to pick a band, drag it to move
- * frequency and gain. [jump] changes animate the whole curve; drags follow the finger exactly.
+ * The EQ curve (bands only; the preamp is the dashed line). When [interactive], tap a node to pick a band
+ * and drag it to move frequency and gain; otherwise bands show as quiet dots. [jump] changes animate the
+ * whole curve; drags follow the finger exactly.
  */
 @Composable
 fun ResponseGraph(
@@ -51,6 +53,7 @@ fun ResponseGraph(
     onSelect: (Int) -> Unit,
     onMove: (Int, Band) -> Unit,
     modifier: Modifier = Modifier,
+    interactive: Boolean = true,
 ) {
     val shown = rememberEqTransition(eq, jump)
     val latest by rememberUpdatedState(eq)
@@ -59,7 +62,7 @@ fun ResponseGraph(
     val pulse by animateFloatAsState(selected.toFloat(), tween(220), label = "selection")
 
     Canvas(
-        modifier
+        if (!interactive) modifier else modifier
             .pointerInput(Unit) {
                 detectTapGestures { p ->
                     nearest(latest, p, size.width.toFloat(), size.height.toFloat(), 40.dp.toPx())?.let {
@@ -89,7 +92,9 @@ fun ResponseGraph(
         curve(shown)
         preamp(shown.preampDb)
         shown.bands.forEachIndexed { i, b ->
-            node(i, b, isSelected = i == selected, emphasis = (1f - kotlin.math.abs(pulse - i)).coerceIn(0f, 1f), text = text)
+            if (interactive) node(i, b, isSelected = i == selected, emphasis = (1f - kotlin.math.abs(pulse - i)).coerceIn(0f, 1f), text = text)
+            else drawCircle(if (b.gainDb == 0.0) Palette.Muted.copy(alpha = 0.6f) else Palette.Signal, 3.5.dp.toPx(),
+                Offset(xOf(b.freqHz, size.width), yOf(b.gainDb, size.height)))
         }
     }
 }
@@ -118,18 +123,18 @@ private fun DrawScope.grid(text: androidx.compose.ui.text.TextMeasurer) {
 }
 
 private fun DrawScope.curve(eq: Eq) {
-    val steps = 180
+    val db = Response.curve(eq, CURVE_HZ)
     val line = Path(); val fill = Path()
     val zero = yOf(0.0, size.height)
-    for (i in 0..steps) {
-        val t = i / steps.toDouble()
-        val x = (t * size.width).toFloat()
-        val y = yOf(eq.bands.sumOf { Response.bandDb(it, Response.freqAt(t)) }.coerceIn(-RANGE_DB - 2, RANGE_DB + 2), size.height)
+    for (i in db.indices) {
+        val x = i / (db.size - 1f) * size.width
+        val y = yOf(db[i].coerceIn(-RANGE_DB - 2, RANGE_DB + 2), size.height)
         if (i == 0) { line.moveTo(x, y); fill.moveTo(x, zero); fill.lineTo(x, y) } else { line.lineTo(x, y); fill.lineTo(x, y) }
     }
     fill.lineTo(size.width, zero); fill.close()
     drawPath(fill, Brush.verticalGradient(listOf(Palette.Signal.copy(alpha = 0.22f), Palette.Signal.copy(alpha = 0.02f), Palette.Signal.copy(alpha = 0.22f))))
-    drawPath(line, Palette.Signal, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
+    drawPath(line, Palette.Signal.copy(alpha = 0.18f), style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round))
+    drawPath(line, Palette.Signal, style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round))
 }
 
 private fun DrawScope.preamp(db: Double) {

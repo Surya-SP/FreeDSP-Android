@@ -59,4 +59,8 @@ object CableCoding {
     })
 
     fun matches(eq: Eq, records: List<Gen1.Metadata>) = eq.bands.map(::metadata) == records
+
+    /** Same active bands as the cable's records; 0 dB bands are ignored because they leave the sound untouched. */
+    fun soundsLike(eq: Eq, records: List<Gen1.Metadata>) =
+        eq.bands.filter { it.gainDb != 0.0 }.map(::metadata).sortedBy { it.freqHz } == records.filter { it.gainDb != 0 }.sortedBy { it.freqHz }
 }

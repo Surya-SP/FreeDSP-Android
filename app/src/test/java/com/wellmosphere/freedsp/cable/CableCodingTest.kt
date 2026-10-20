@@ -72,3 +72,30 @@ class CableCodingTest {
         assertThrows(IllegalStateException::class.java) { CableCoding.eqFrom(List(9) { Gen1.Metadata(1000, 180, 7, 0) }) }
     }
 }
+
+class SoundsLikeTest {
+    private val q = 180 / 256.0
+    private val freqs = listOf(103, 177, 306, 527, 909, 1565, 2697, 4644, 7999)
+    private val flatPeaks = Eq(freqs.map { Band(it.toDouble(), 0.0, q) })
+
+    @Test fun zeroGainBandsDontChangeTheSound() {
+        // Seen on the device: band 1 written as a 0 dB low shelf; a flat profile of peaks sounds the same.
+        val records = flatPeaks.withBand(0, Band(103.0, 0.0, q, FilterType.LOW_SHELF)).bands.map(CableCoding::metadata)
+        assertFalse(CableCoding.matches(flatPeaks, records))
+        assertTrue(CableCoding.soundsLike(flatPeaks, records))
+        assertTrue(CableCoding.soundsLike(Eq.FLAT, records)) // different frequencies, still flat
+    }
+    @Test fun activeBandsMustMatch() {
+        val eq = flatPeaks.withBand(4, Band(909.0, -3.0, q))
+        val records = eq.bands.map(CableCoding::metadata)
+        assertTrue(CableCoding.soundsLike(eq, records))
+        assertFalse(CableCoding.soundsLike(flatPeaks, records))
+        assertFalse(CableCoding.soundsLike(eq.withBand(4, Band(909.0, -3.0, q, FilterType.HIGH_SHELF)), records))
+    }
+    @Test fun exactComparisonSeesFractionsAndPreamp() {
+        val a = flatPeaks.withBand(2, Band(306.0, 2.3, q)).withSafePreamp()
+        assertTrue(a.soundsLike(a.withBand(0, Band(103.0, 0.0, 1.0, FilterType.LOW_SHELF))))
+        assertFalse(a.soundsLike(a.withBand(2, Band(306.0, 2.4, q))))
+        assertFalse(a.soundsLike(a.withPreamp(-5.0)))
+    }
+}

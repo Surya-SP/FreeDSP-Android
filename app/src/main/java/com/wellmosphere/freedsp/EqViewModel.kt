@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.wellmosphere.freedsp.cable.CableCoding
 import com.wellmosphere.freedsp.cable.CableLink
 import com.wellmosphere.freedsp.cable.CableOps
+import com.wellmosphere.freedsp.cable.Gen1
 import com.wellmosphere.freedsp.cable.HidTakeover
 import com.wellmosphere.freedsp.eq.Band
 import com.wellmosphere.freedsp.eq.Eq
@@ -15,7 +16,9 @@ import com.wellmosphere.freedsp.eq.Response
 import com.wellmosphere.freedsp.eq.SquigText
 import com.wellmosphere.freedsp.store.Profile
 import com.wellmosphere.freedsp.store.ProfileStore
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -24,40 +27,72 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
 
 enum class Cable { ABSENT, NEEDS_ACCESS, READY }
+enum class Mode { SIMPLE, PARAMETRIC }
 
 data class Notice(val text: String, val problem: Boolean = false, val id: Long = System.nanoTime())
 
 data class UiState(
-    val eq: Eq = Eq.FLAT,
+    val profiles: List<Profile> = emptyList(),
+    val active: String = "",
+    val mode: Mode = Mode.SIMPLE,
     val selected: Int = 0,
     val cable: Cable = Cable.ABSENT,
-    /** What the cable holds, as best the app knows; null until read. */
-    val onCable: Eq? = null,
+    /** The cable's band records from the last read or write; null until read. */
+    val onCable: List<Gen1.Metadata>? = null,
+    val lastWritten: Eq? = null,
     val busy: String? = null,
     val notice: Notice? = null,
-    val profiles: List<Profile> = emptyList(),
     val restorePending: Boolean = false,
     val firstWrite: Boolean = true,
-    /** Bumped when the whole EQ is replaced (read, profile, import), so the graph can animate the change. */
+    /** Bumped when the whole EQ is replaced (profile switch, import), so the graph can animate the change. */
     val jump: Int = 0,
 ) {
-    /** Loudest point of what you'd hear (bands plus preamp); computed once per state. */
-    val loudestDb: Double by lazy { Response.peak(eq) + eq.preampDb }
-    /** Same rule CableCoding.plan enforces: never louder than flat. */
-    val clips get() = loudestDb > 1e-9
-    val unsaved get() = onCable != null && eq != onCable
+    val eq: Eq get() = profiles.firstOrNull { it.name == active }?.eq ?: Eq.FLAT
+
+    /**
+     * The profile that sounds like what the cable is playing. When the cable holds our last write, it must sound
+     * exactly like that EQ (records can't tell 2.3 dB from 2.4 dB, or show the preamp); otherwise matching
+     * records are our best answer. The active profile wins ties.
+     */
+    val playing: String? by lazy {
+        val records = onCable ?: return@lazy null
+        val ours = lastWritten?.takeIf { CableCoding.matches(it, records) }
+        (listOfNotNull(profiles.firstOrNull { it.name == active }) + profiles)
+            .firstOrNull { if (ours != null) it.eq.soundsLike(ours) else CableCoding.soundsLike(it.eq, records) }?.name
+    }
+    val activeOnCable get() = playing == active
+    val clips: Boolean by lazy { Response.clips(eq) }
 }
 
 class EqViewModel(app: Application) : AndroidViewModel(app) {
     private val link = CableLink(app)
     private val store = ProfileStore(app.filesDir)
     private val usb = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
-    private val _state = MutableStateFlow(UiState(profiles = store.profiles, firstWrite = store.verifiedWrites == 0))
+    private var saveJob: Job? = null
+    /** The cable restarts itself to save a write; set from the USB thread, read on main. */
+    @Volatile private var awaitingRestart = false
+    /** "My EQ" was created flat before the cable was ever read; the first read may replace it. */
+    private var seeded = false
+
+    private val _state = MutableStateFlow(UiState())
     val state = _state.asStateFlow()
+
+    init {
+        if (store.profiles.isEmpty()) { store.put(FIRST, Eq.FLAT); store.setActive(FIRST); seeded = true }
+        _state.value = UiState(
+            profiles = store.profiles,
+            active = store.active?.takeIf { a -> store.profiles.any { it.name == a } } ?: store.profiles.first().name,
+            mode = store.mode?.let { runCatching { Mode.valueOf(it) }.getOrNull() } ?: Mode.SIMPLE,
+            lastWritten = store.lastWritten,
+            firstWrite = store.verifiedWrites == 0,
+        )
+    }
 
     val device: UsbDevice? get() = link.find()
 
-    /** Re-checks the cable; reads it once when it first becomes available. */
+    // ---- cable ----
+
+    /** Re-checks the cable; reads it once whenever it (re)appears. */
     fun refresh() {
         val d = link.find()
         val cable = when {
@@ -65,7 +100,11 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
             link.manager.hasPermission(d) -> Cable.READY
             else -> Cable.NEEDS_ACCESS
         }
-        _state.update { it.copy(cable = cable, restorePending = link.restorePending, onCable = if (d == null) null else it.onCable) }
+        if (d != null && awaitingRestart) awaitingRestart = false
+        _state.update {
+            it.copy(cable = cable, restorePending = link.restorePending, onCable = if (d == null) null else it.onCable,
+                busy = if (it.busy == SAVING && !awaitingRestart) null else it.busy)
+        }
         val s = _state.value
         if (cable == Cable.READY && s.onCable == null && s.busy == null && !s.restorePending) read()
     }
@@ -74,24 +113,35 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
 
     fun read() = cableJob("Reading your cable…") { d ->
         val snap = link.session(d, CableOps::read)
-        val shown = store.lastWritten?.takeIf { CableCoding.matches(it, snap.bands) } ?: CableCoding.eqFrom(snap.bands)
-        _state.update { it.copy(onCable = shown, eq = shown, jump = it.jump + 1) }
+        _state.update { it.copy(onCable = snap.bands) }
+        if (seeded) {
+            seeded = false
+            // First run: start from whatever the cable holds instead of a flat placeholder.
+            val untouched = _state.value.let { it.profiles.size == 1 && it.eq == Eq.FLAT }
+            if (untouched && _state.value.playing == null) {
+                val fromCable = (store.lastWritten?.takeIf { CableCoding.matches(it, snap.bands) } ?: CableCoding.eqFrom(snap.bands)).withSafePreamp()
+                replaceActive(fromCable)
+            }
+        }
     }
 
     fun write() {
         val eq = _state.value.eq
         val plan = runCatching { CableCoding.plan(eq) }.getOrElse { return say(it.message ?: "Can't write this EQ", true) }
         cableJob("Writing to your cable…") { d ->
-            val result = link.session(d) { t ->
-                CableOps.write(t, plan) { frame, ack -> Log.i(CableLink.TAG, "${frame.label}: sent ${frame.bytes.hex()} ack ${ack.hex()}") }
-            }
+            val result = link.session(d) { t -> CableOps.write(t, plan) }
             if (result.verified) {
                 store.written(eq)
-                _state.update { it.copy(onCable = eq, firstWrite = false) }
-                say("Saved on your cable and checked.")
+                awaitingRestart = true
+                _state.update { it.copy(onCable = result.readBack.bands, lastWritten = eq, firstWrite = false) }
+                say("Written and checked. The cable restarts for a moment to keep it.")
+                viewModelScope.launch {
+                    delay(6000) // In case the restart is never seen.
+                    if (awaitingRestart) { awaitingRestart = false; refresh() }
+                }
             } else {
-                _state.update { it.copy(onCable = CableCoding.eqFrom(result.readBack.bands)) }
-                say("The cable reads back differently on band ${result.mismatchedBands.joinToString()}. Your EQ is still here, try writing again.", true)
+                _state.update { it.copy(onCable = result.readBack.bands) }
+                say("The cable reads back differently on band ${result.mismatchedBands.joinToString()}. Try writing again.", true)
             }
         }
     }
@@ -104,32 +154,85 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
         })
     }
 
-    fun select(index: Int) = _state.update { it.copy(selected = index) }
-    fun updateBand(index: Int, band: Band) = _state.update { it.copy(eq = it.eq.withBand(index, band), selected = index) }
-    fun setPreamp(db: Double) = _state.update { it.copy(eq = it.eq.withPreamp(db)) }
-    fun autoHeadroom() = _state.update { it.copy(eq = it.eq.withPreamp(Response.headroomFor(it.eq))) }
-    fun flatten() = replace(_state.value.eq.flattened())
-    fun revert() { _state.value.onCable?.let(::replace) }
-
-    fun saveProfile(name: String) {
-        val clean = name.trim().ifEmpty { return }
-        store.save(clean, _state.value.eq)
-        _state.update { it.copy(profiles = store.profiles) }
-        say("Saved \"$clean\".")
+    /** Keeps the cable's current EQ as a profile. Gains come back in whole dB and the preamp is recalculated. */
+    fun saveCableAsProfile() {
+        val records = _state.value.onCable ?: return
+        val eq = runCatching { CableCoding.eqFrom(records).withSafePreamp() }.getOrElse { return say(it.message ?: "Can't read that EQ", true) }
+        addProfile(unique("From cable"), eq)
+        say("Saved what's on your cable. Its gains are rounded to whole dB, which is how the cable stores them.")
     }
-    fun loadProfile(p: Profile) { replace(p.eq); say("Loaded \"${p.name}\". Write it to hear it on the cable.") }
-    fun deleteProfile(p: Profile) { store.delete(p.name); _state.update { it.copy(profiles = store.profiles) } }
 
-    fun import(text: String) = runCatching { SquigText.parse(text) }.fold(
-        onSuccess = { replace(it.eq); say("Imported." + if (it.notes.isEmpty()) "" else " Heads up: ${it.notes.joinToString("; ")}.") },
+    // ---- editing (always the active profile; the preamp follows automatically) ----
+
+    fun setMode(mode: Mode) { _state.update { it.copy(mode = mode) }; store.setMode(mode.name) }
+    fun select(index: Int) = _state.update { it.copy(selected = index) }
+    fun updateBand(index: Int, band: Band) { _state.update { it.copy(selected = index) }; edit { it.withBand(index, band) } }
+    fun setGain(index: Int, gainDb: Double) = edit { it.withBand(index, it.bands[index].copy(gainDb = gainDb)) }
+    fun flatten() { edit { it.flattened() }; _state.update { it.copy(jump = it.jump + 1) } }
+
+    private fun edit(change: (Eq) -> Eq) = replaceActive(change(_state.value.eq).withSafePreamp(), animate = false)
+
+    private fun replaceActive(eq: Eq, animate: Boolean = true) {
+        val name = _state.value.active
+        _state.update { s -> s.copy(profiles = s.profiles.map { if (it.name == name) it.copy(eq = eq) else it }, jump = if (animate) s.jump + 1 else s.jump) }
+        saveJob?.cancel()
+        saveJob = viewModelScope.launch { delay(400); store.put(name, eq) }
+    }
+
+    // ---- profiles ----
+
+    fun switchTo(name: String) {
+        if (name == _state.value.active) return
+        flushSave()
+        store.setActive(name)
+        _state.update { it.copy(active = name, jump = it.jump + 1) }
+    }
+    fun newProfile(name: String) = addProfile(unique(name.trim().ifEmpty { "New EQ" }), Eq.FLAT)
+    fun duplicate(name: String) = _state.value.profiles.firstOrNull { it.name == name }?.let { addProfile(unique("${it.name} copy"), it.eq) }
+    fun rename(from: String, to: String) {
+        val clean = to.trim()
+        if (clean.isEmpty() || clean == from) return
+        if (_state.value.profiles.any { it.name == clean }) return say("You already have a profile called \"$clean\".", true)
+        flushSave()
+        store.rename(from, clean)
+        _state.update { s -> s.copy(profiles = store.profiles, active = if (s.active == from) clean else s.active) }
+    }
+    fun delete(name: String) {
+        flushSave()
+        store.delete(name)
+        if (store.profiles.isEmpty()) store.put(FIRST, Eq.FLAT)
+        val active = if (_state.value.active == name) store.profiles.first().name else _state.value.active
+        store.setActive(active)
+        _state.update { it.copy(profiles = store.profiles, active = active, jump = it.jump + 1) }
+    }
+
+    fun import(text: String, suggestedName: String?) = runCatching { SquigText.parse(text) }.fold(
+        onSuccess = {
+            addProfile(unique(suggestedName?.substringBeforeLast('.')?.trim()?.ifEmpty { null } ?: "Imported"), it.eq.withSafePreamp())
+            say("Imported." + if (it.notes.isEmpty()) "" else " Heads up: ${it.notes.joinToString("; ")}.")
+        },
         onFailure = { say(it.message ?: "That doesn't look like an EQ", true) },
     )
     fun exportText() = SquigText.export(_state.value.eq)
+    val exportName get() = "${_state.value.active}.txt"
+
+    private fun addProfile(name: String, eq: Eq) {
+        flushSave()
+        store.put(name, eq); store.setActive(name)
+        _state.update { it.copy(profiles = store.profiles, active = name, jump = it.jump + 1) }
+    }
+    private fun unique(base: String): String {
+        val names = _state.value.profiles.map { it.name }.toSet()
+        return generateSequence(1) { it + 1 }.map { if (it == 1) base else "$base $it" }.first { it !in names }
+    }
+    private fun flushSave() {
+        if (saveJob?.isActive == true) { saveJob?.cancel(); store.put(_state.value.active, _state.value.eq) }
+    }
+
+    // ---- messages ----
 
     fun say(text: String, problem: Boolean = false) = _state.update { it.copy(notice = Notice(text, problem)) }
     fun dismissNotice(id: Long) = _state.update { if (it.notice?.id == id) it.copy(notice = null) else it }
-
-    private fun replace(eq: Eq) = _state.update { it.copy(eq = eq, jump = it.jump + 1) }
 
     private fun cableJob(label: String, work: (UsbDevice) -> Unit) {
         if (_state.value.busy != null) return
@@ -138,11 +241,14 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val r = withContext(usb) { runCatching { work(d) } }
             r.exceptionOrNull()?.let { Log.w(CableLink.TAG, "$label failed", it); say(it.message ?: "Something went wrong", true) }
-            _state.update { it.copy(busy = null, restorePending = link.restorePending) }
+            _state.update { it.copy(busy = if (awaitingRestart) SAVING else null, restorePending = link.restorePending) }
         }
     }
 
-    override fun onCleared() = usb.close()
-}
+    override fun onCleared() { flushSave(); usb.close() }
 
-fun ByteArray.hex(): String = joinToString(" ") { "%02X".format(it.toInt() and 255) }
+    private companion object {
+        const val FIRST = "My EQ"
+        const val SAVING = "Your cable is saving the EQ…"
+    }
+}

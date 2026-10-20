@@ -90,11 +90,13 @@ class CableLink(context: Context) {
     private class Transport(private val connection: UsbDeviceConnection) : CableOps.Transport {
         override fun send(frame: Gen1.Frame) {
             val n = connection.controlTransfer(0x21, 0x09, 0x0201, Gen1.HID_INTERFACE, frame.bytes, Gen1.FRAME_LENGTH, TIMEOUT)
+            Log.i(TAG, "-> ${frame.label} ($n) ${frame.bytes.toHex()}")
             check(n == Gen1.FRAME_LENGTH) { "Sending ${frame.label} failed ($n/${Gen1.FRAME_LENGTH})" }
         }
         override fun receive(): ByteArray {
             val buffer = ByteArray(Gen1.FRAME_LENGTH)
             val n = connection.controlTransfer(0xA1, 0x01, 0x0101, Gen1.HID_INTERFACE, buffer, Gen1.FRAME_LENGTH, TIMEOUT)
+            Log.i(TAG, "<- ($n) ${if (n > 0) buffer.copyOf(n).toHex() else ""}")
             check(n >= 0) { "The cable stopped answering" }
             return buffer.copyOf(n)
         }
@@ -103,6 +105,8 @@ class CableLink(context: Context) {
 
     companion object {
         const val TAG = "FreeDSP"
+        /** Every frame and reply goes to logcat (tag FreeDSP) so a session can be checked afterwards. */
+        private fun ByteArray.toHex() = joinToString(" ") { "%02X".format(it.toInt() and 255) }
         private const val TIMEOUT = 1000
     }
 }

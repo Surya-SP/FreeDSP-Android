@@ -17,11 +17,17 @@ data class Eq(val bands: List<Band>, val preampDb: Double = 0.0) {
     fun withPreamp(db: Double) = copy(preampDb = Limits.clampPreamp(db))
     /** Same frequencies, shapes and widths, nothing boosted or cut. */
     fun flattened() = Eq(bands.map { it.copy(gainDb = 0.0) })
+    /** Bands at 0 dB do nothing whatever their type, Q or frequency, so only the active ones (and the preamp) count. */
+    fun soundsLike(other: Eq) = preampDb == other.preampDb && active() == other.active()
+    private fun active() = bands.filter { it.gainDb != 0.0 }.sortedBy { it.freqHz }
+    /** The preamp is automatic: just enough to keep the loudest point at 0 dB, so nothing can distort. */
+    fun withSafePreamp() = withPreamp(Response.headroomFor(this))
 
     companion object {
         const val BANDS = 9
-        private val OCTAVES = listOf(31.0, 62.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0)
-        val FLAT = Eq(OCTAVES.map { Band(it, 0.0, 1.0) })
+        /** A classic octave graphic EQ: the starting point for new profiles and Simple mode. */
+        private val OCTAVES = listOf(63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0)
+        val FLAT = Eq(OCTAVES.map { Limits.clamp(Band(it, 0.0, 1.41)) })
     }
 }
 

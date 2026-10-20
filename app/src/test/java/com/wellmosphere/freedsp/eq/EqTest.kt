@@ -24,4 +24,18 @@ class EqTest {
     @Test fun aPeakMeasuresItsOwnGainAtItsCentre() {
         assertEquals(-3.0, Response.bandDb(Band(909.0, -3.0, 0.7), 909.0), 1e-9)
     }
+
+    @Test fun safePreampNeverLetsAnEditDistort() {
+        var eq = Eq.FLAT
+        for ((i, g) in listOf(6.0, 6.0, 4.5, -3.0, 2.0, 6.0, 3.5, 6.0, 1.0).withIndex()) {
+            eq = eq.withBand(i, eq.bands[i].copy(gainDb = g)).withSafePreamp()
+            assertFalse("after band ${i + 1}", Response.clips(eq))
+        }
+        assertEquals(0.0, Eq.FLAT.withBand(2, Eq.FLAT.bands[2].copy(gainDb = -4.0)).withSafePreamp().preampDb, 0.0)
+    }
+    @Test fun newProfilesStartAsAFlatOctaveGraphicEq() {
+        assertEquals(listOf(63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000), Eq.FLAT.bands.map { it.freqHz.toInt() })
+        assertTrue(Eq.FLAT.bands.all { it.gainDb == 0.0 && it.type == FilterType.PEAK && it == Limits.clamp(it) })
+        assertEquals(0.0, Response.peak(Eq.FLAT), 0.0)
+    }
 }
