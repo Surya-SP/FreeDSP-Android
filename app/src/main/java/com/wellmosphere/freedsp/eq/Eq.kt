@@ -25,15 +25,19 @@ data class Eq(val bands: List<Band>, val preampDb: Double = 0.0) {
 
     companion object {
         const val BANDS = 9
-        /** A classic octave graphic EQ: the starting point for new profiles and Simple mode. */
-        private val OCTAVES = listOf(63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0)
-        val FLAT = Eq(OCTAVES.map { Limits.clamp(Band(it, 0.0, 1.41)) })
+        /** The cable's own factory layout (read from it): log-spaced peaks, Q 0.70. New profiles start here. */
+        private val FACTORY = listOf(103.0, 177.0, 306.0, 527.0, 909.0, 1565.0, 2697.0, 4644.0, 7999.0)
+        val FLAT = Eq(FACTORY.map { Band(it, 0.0, 180 / 256.0) })
     }
 }
 
+/**
+ * What the official Moondrop app allows on the original FreeDSP. Writes outside it were stored but not heard on
+ * the physical cable (2026-10-20), so the app keeps every EQ inside these ranges.
+ */
 object Limits {
-    val FREQ = 20.0..20_000.0
-    val GAIN = -12.0..6.0
+    val FREQ = 60.0..10_000.0
+    val GAIN = -12.0..3.0
     val Q = 0.2..10.0
     /** Shelf-Q alpha needs (A + 1/A)(1/Q - 1) + 2 >= 0; Q <= 2 keeps it real for every allowed gain. */
     val SHELF_Q = 0.2..2.0

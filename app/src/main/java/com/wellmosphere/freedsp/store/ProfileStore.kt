@@ -3,6 +3,7 @@ package com.wellmosphere.freedsp.store
 import com.wellmosphere.freedsp.eq.Band
 import com.wellmosphere.freedsp.eq.Eq
 import com.wellmosphere.freedsp.eq.FilterType
+import com.wellmosphere.freedsp.eq.Limits
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -70,5 +71,6 @@ class ProfileStore(dir: File) {
         } }
         return Eq(bands, o.getDouble("preampDb"))
     }
-    private fun profile(o: JSONObject) = Profile(o.getString("name"), eq(o.getJSONObject("eq")))
+    /** Profiles saved under wider, older limits are brought into the cable's range as they load. */
+    private fun profile(o: JSONObject) = Profile(o.getString("name"), eq(o.getJSONObject("eq")).let { e -> Eq(e.bands.map(Limits::clamp)).withSafePreamp() })
 }

@@ -14,10 +14,13 @@ class EqTest {
     }
     @Test fun limitsHoldEveryValueInsideTheCablesRange() {
         val b = Limits.clamp(Band(5.0, 20.0, 50.0, FilterType.HIGH_SHELF))
-        assertEquals(20.0, b.freqHz, 0.0); assertEquals(6.0, b.gainDb, 0.0); assertEquals(2.0, b.q, 0.0)
+        assertEquals(60.0, b.freqHz, 0.0); assertEquals(3.0, b.gainDb, 0.0); assertEquals(2.0, b.q, 0.0)
         assertEquals(-20.0, Eq.FLAT.withPreamp(-40.0).preampDb, 0.0); assertEquals(0.0, Eq.FLAT.withPreamp(3.0).preampDb, 0.0)
     }
-    @Test fun shelvesStayFiniteAcrossTheWholeAllowedRange() {
+    @Test fun frequenciesStayWithinTheOfficialRange() {
+        assertEquals(10_000.0, Limits.clamp(Band(16_000.0, 0.0, 1.0)).freqHz, 0.0)
+    }
+    @Test fun shelvesStayFiniteAtTheExtremes() {
         for (g in listOf(-12.0, 6.0)) for (q in listOf(0.2, 2.0)) for (t in listOf(FilterType.LOW_SHELF, FilterType.HIGH_SHELF))
             assertTrue(Response.biquad(t, 1000.0, g, q, 384_000.0).all { it.isFinite() })
     }
@@ -33,8 +36,8 @@ class EqTest {
         }
         assertEquals(0.0, Eq.FLAT.withBand(2, Eq.FLAT.bands[2].copy(gainDb = -4.0)).withSafePreamp().preampDb, 0.0)
     }
-    @Test fun newProfilesStartAsAFlatOctaveGraphicEq() {
-        assertEquals(listOf(63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000), Eq.FLAT.bands.map { it.freqHz.toInt() })
+    @Test fun newProfilesStartFromTheCablesFactoryLayout() {
+        assertEquals(listOf(103, 177, 306, 527, 909, 1565, 2697, 4644, 7999), Eq.FLAT.bands.map { it.freqHz.toInt() })
         assertTrue(Eq.FLAT.bands.all { it.gainDb == 0.0 && it.type == FilterType.PEAK && it == Limits.clamp(it) })
         assertEquals(0.0, Response.peak(Eq.FLAT), 0.0)
     }

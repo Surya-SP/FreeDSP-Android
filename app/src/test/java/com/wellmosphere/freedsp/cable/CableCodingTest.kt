@@ -48,11 +48,11 @@ class CableCodingTest {
     }
 
     @Test fun preampRidesOnTheLastActiveBand() {
-        val eq = asFound.withBand(0, Band(105.0, 4.0, 0.7, FilterType.LOW_SHELF)).withPreamp(-4.5)
+        val eq = asFound.withBand(0, Band(105.0, 3.0, 0.7, FilterType.LOW_SHELF)).withPreamp(-4.5)
         val frames = CableCoding.plan(eq).frames
         val band1At48 = frames.single { it.label == "band 1 filter @5" }.bytes
         val c = java.nio.ByteBuffer.wrap(band1At48).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-        assertEquals(listOf(2505101, -4944865, 2440353, 8301642, -4107961), (0..4).map { c.getInt(22 + 4 * it) })
+        assertEquals(listOf(2503408, -4943477, 2440624, 8299265, -4105620), (0..4).map { c.getInt(22 + 4 * it) })
         val untouched = frames.single { it.label == "band 9 filter @5" }.bytes
         assertEquals(4194304, java.nio.ByteBuffer.wrap(untouched).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt(22))
     }

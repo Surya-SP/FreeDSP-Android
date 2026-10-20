@@ -32,7 +32,7 @@ object SquigText {
             val fitted = Limits.clamp(raw)
             if (fitted.gainDb != raw.gainDb) notes += "some gains were limited to ${fmt(Limits.GAIN.start)}…+${fmt(Limits.GAIN.endInclusive)} dB"
             if (fitted.q != raw.q && kotlin.math.abs(fitted.q - raw.q) > 0.01) notes += "some Q values were limited"
-            if (fitted.freqHz != Math.round(raw.freqHz).toDouble()) notes += "some frequencies were limited to 20 Hz–20 kHz"
+            if (fitted.freqHz != Math.round(raw.freqHz).toDouble()) notes += "some frequencies were moved into the cable's 60 Hz–10 kHz range"
             bands += fitted
         }
         require(bands.isNotEmpty()) { "No EQ filters found. Paste parametric EQ text, like an AutoEQ or squig.link export." }

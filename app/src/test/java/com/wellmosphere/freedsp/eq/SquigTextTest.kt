@@ -28,8 +28,9 @@ class SquigTextTest {
     }
     @Test fun clampsAndConvertsWhatTheCableCantDo() {
         val r = SquigText.parse("Filter 1: ON PK Fc 50 Hz Gain 10.0 dB Q 1.0\nFilter 2: ON HPQ Fc 20 Hz Gain 0.0 dB Q 0.7")
-        assertEquals(6.0, r.eq.bands[0].gainDb, 0.0); assertEquals(FilterType.PEAK, r.eq.bands[1].type)
-        assertEquals(2, r.notes.size)
+        assertEquals(3.0, r.eq.bands[0].gainDb, 0.0); assertEquals(60.0, r.eq.bands[0].freqHz, 0.0)
+        assertEquals(FilterType.PEAK, r.eq.bands[1].type)
+        assertEquals(3, r.notes.size) // gain, frequency range, unsupported type
     }
     @Test fun refusesTextWithoutFilters() {
         assertThrows(IllegalArgumentException::class.java) { SquigText.parse("hello") }
