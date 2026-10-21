@@ -39,4 +39,7 @@ object Presets {
         preset("Cinema", "Rumble for action, clear dialogue.", 3.0, 2.0, 0.0, -1.0, 0.0, 1.5, 1.5, 1.0, 1.5),
         preset("Late night", "Gentle and easy on the ears.", -1.0, 0.0, 0.0, 0.0, 0.0, -1.0, -2.0, -2.0, -3.0),
     )
+
+    val FLAT = ALL.first()
+    fun named(name: String) = ALL.firstOrNull { it.name == name }
 }

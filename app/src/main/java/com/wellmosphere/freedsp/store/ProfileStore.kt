@@ -11,7 +11,8 @@ import java.io.File
 data class Profile(val name: String, val eq: Eq)
 
 /**
- * Profiles (in the order they were made), which one is active, the editor mode, and the exact EQ last
+ * Profiles (in the order they were made), which one is active, the applied preset (which wins over the active
+ * profile while set, with any edits to it in [presetEq]), the editor mode, and the exact EQ last
  * written to the cable. A read only returns whole-dB labels and no preamp, so [lastWritten] is how the
  * app knows the cable is playing a profile exactly. One JSON file, replaced through a temp file.
  */
@@ -19,6 +20,8 @@ class ProfileStore(dir: File) {
     private val file = File(dir, "profiles.json")
     var profiles: List<Profile> = emptyList(); private set
     var active: String? = null; private set
+    var preset: String? = null; private set
+    var presetEq: Eq? = null; private set
     var mode: String? = null; private set
     var lastWritten: Eq? = null; private set
     var verifiedWrites = 0; private set
@@ -28,6 +31,8 @@ class ProfileStore(dir: File) {
             val root = JSONObject(file.readText())
             profiles = root.getJSONArray("profiles").let { a -> (0 until a.length()).map { profile(a.getJSONObject(it)) } }
             active = root.optString("active").ifEmpty { null }
+            preset = root.optString("preset").ifEmpty { null }
+            presetEq = root.optJSONObject("presetEq")?.let(::eq)
             mode = root.optString("mode").ifEmpty { null }
             lastWritten = root.optJSONObject("lastWritten")?.let(::eq)
             verifiedWrites = root.optInt("verifiedWrites")
@@ -46,7 +51,9 @@ class ProfileStore(dir: File) {
         persist()
     }
     @Synchronized fun delete(name: String) { profiles = profiles.filter { it.name != name }; persist() }
-    @Synchronized fun setActive(name: String) { active = name; persist() }
+    /** Making a profile active leaves the preset. */
+    @Synchronized fun setActive(name: String) { active = name; preset = null; presetEq = null; persist() }
+    @Synchronized fun setPreset(name: String, eq: Eq) { preset = name; presetEq = eq; persist() }
     @Synchronized fun setMode(value: String) { mode = value; persist() }
     @Synchronized fun written(eq: Eq) { lastWritten = eq; verifiedWrites++; persist() }
 
@@ -54,6 +61,7 @@ class ProfileStore(dir: File) {
         val root = JSONObject()
             .put("profiles", JSONArray(profiles.map { JSONObject().put("name", it.name).put("eq", json(it.eq)) }))
             .put("active", active ?: "").put("mode", mode ?: "")
+            .put("preset", preset ?: "").put("presetEq", presetEq?.let(::json) ?: JSONObject.NULL)
             .put("lastWritten", lastWritten?.let(::json) ?: JSONObject.NULL)
             .put("verifiedWrites", verifiedWrites)
         val temp = File(file.parentFile, "profiles.tmp")

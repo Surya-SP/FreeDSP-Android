@@ -54,12 +54,11 @@ private val MINI_HZ = Response.logSpaced(64)
 
 /**
  * Built-in presets as a full-screen page: it scrolls on its own and closes only with ✕ or Back, so a long
- * scroll can never be mistaken for a dismiss. A preset loads [into] the profile you're on; [current] marks the one it
- * already sounds like.
+ * scroll can never be mistaken for a dismiss. [current] marks the applied preset.
  * Show it inside an AnimatedVisibility for the slide-up.
  */
 @Composable
-fun PresetsPage(into: String, current: (Preset) -> Boolean, onPick: (Preset) -> Unit, onClose: () -> Unit) {
+fun PresetsPage(current: (Preset) -> Boolean, onPick: (Preset) -> Unit, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
     // Cards cascade in once per opening; scrolling them back into view doesn't replay it.
     val entered = remember { mutableSetOf<String>() }
@@ -77,7 +76,7 @@ fun PresetsPage(into: String, current: (Preset) -> Boolean, onPick: (Preset) -> 
                     Text("Presets", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
                     IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = "Close presets") }
                 }
-                Text("Tap one to load it into \u201C$into\u201D; you can undo it. Every preset stays inside what the cable can play, and none of them distort.",
+                Text("Tap one to try it, then write it to your cable. Every preset stays inside what the cable can play, and none of them distort.",
                     style = MaterialTheme.typography.bodyMedium, color = Palette.Muted, modifier = Modifier.padding(top = 4.dp, end = 8.dp))
             }
         }

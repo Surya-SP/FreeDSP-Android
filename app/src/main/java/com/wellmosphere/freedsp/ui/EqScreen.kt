@@ -93,7 +93,7 @@ import com.wellmosphere.freedsp.ui.components.NameDialog
 import com.wellmosphere.freedsp.ui.components.NoticeBar
 import com.wellmosphere.freedsp.ui.components.Panel
 import com.wellmosphere.freedsp.ui.components.ProfileActions
-import com.wellmosphere.freedsp.ui.components.ProfileBar
+import com.wellmosphere.freedsp.ui.components.SoundPicker
 import com.wellmosphere.freedsp.ui.components.ResponseGraph
 import com.wellmosphere.freedsp.ui.components.ValueControl
 import com.wellmosphere.freedsp.ui.components.hz
@@ -116,7 +116,7 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
     val clipboard = LocalClipboardManager.current
     // A picked band owns every drag; the page only scrolls again once it's released by a tap elsewhere.
     var picked by remember { mutableStateOf(false) }
-    LaunchedEffect(state.mode, state.active) { picked = false }
+    LaunchedEffect(state.mode, state.title) { picked = false }
     val pick = { i: Int -> vm.select(i); picked = true }
     val band = state.eq.bands[state.selected]
 
@@ -131,10 +131,12 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
                 DropdownMenuItem(text = { Text("Paste EQ text") }, onClick = { close(); clipboard.getText()?.text?.let { vm.import(it, null) } ?: vm.say("Copy some parametric EQ text first.", true) })
                 DropdownMenuItem(text = { Text("Read the cable again") }, enabled = state.cable == Cable.READY && state.busy == null, onClick = { close(); vm.read() })
             }
-            ProfileBar(
-                state.profiles, state.active, state.playing, onSelect = vm::switchTo, onNew = { naming = Naming(null) }, onPresets = { presetsOpen = true },
-                actions = ProfileActions(rename = { naming = Naming(it) }, duplicate = vm::duplicate, export = { onExport() }, delete = { deleting = it }),
-                modifier = Modifier.padding(start = 20.dp),
+            SoundPicker(
+                state.preset, state.presetEdited, state.profiles, state.active, state.playing, state.activeOnCable,
+                onPresets = { presetsOpen = true }, onSelect = vm::switchTo, onSave = { naming = Naming(null) },
+                actions = ProfileActions(rename = { naming = Naming(it) }, duplicate = vm::duplicate,
+                    export = { vm.switchTo(it); onExport() }, delete = { deleting = it }),
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 AnimatedVisibility(state.restorePending) { RestoreCard(busy = state.busy != null, onRestore = vm::restore) }
@@ -192,14 +194,14 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
             Brush.verticalGradient(listOf(Palette.Ink, Palette.Ink.copy(alpha = 0.85f)))))
         AnimatedVisibility(presetsOpen, enter = slideInVertically { it / 4 } + fadeIn(), exit = slideOutVertically { it / 4 } + fadeOut()) {
             PresetsPage(
-                into = state.active, current = { p -> state.eq.soundsLike(p.eq) },
+                current = { it.name == state.preset },
                 onPick = { vm.applyPreset(it); presetsOpen = false }, onClose = { presetsOpen = false },
             )
         }
     }
 
     naming?.let { n ->
-        NameDialog(if (n.from == null) "Keep this sound as…" else "Rename profile", n.from ?: "", if (n.from == null) "Create" else "Rename") { name ->
+        NameDialog(if (n.from == null) "Save as a profile" else "Rename profile", n.from ?: state.preset?.let { "My $it" }.orEmpty(), if (n.from == null) "Save" else "Rename") { name ->
             naming = null
             if (name != null) if (n.from == null) vm.newProfile(name) else vm.rename(n.from, name)
         }
@@ -215,7 +217,7 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
     }
     if (confirmWrite) AlertDialog(
         onDismissRequest = { confirmWrite = false },
-        title = { Text("Write \"${state.active}\" to your cable?") },
+        title = { Text("Write \"${state.title}\" to your cable?") },
         text = {
             Text(buildString {
                 append("It replaces the EQ stored on the cable and takes a couple of seconds. The inline buttons pause briefly and the cable restarts once to keep it.")
@@ -331,8 +333,8 @@ private fun WriteBar(state: UiState, onAllowAccess: () -> Unit, onWrite: () -> U
         state.cable == Cable.NEEDS_ACCESS -> "Allow USB access" to onAllowAccess
         state.restorePending -> "Restore the buttons first" to null
         state.clips -> "Lower a few bands to write" to null
-        state.activeOnCable -> "\"${state.active}\" is on your cable  ✓" to null
-        else -> "Write \"${state.active}\" to cable" to onWrite
+        state.activeOnCable -> "\"${state.title}\" is on your cable  ✓" to null
+        else -> "Write \"${state.title}\" to cable" to onWrite
     }
     // A soft pop and a buzz when a write lands, never on launch.
     val haptics = LocalHapticFeedback.current

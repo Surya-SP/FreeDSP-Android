@@ -40,7 +40,11 @@ data class Notice(val text: String, val problem: Boolean = false, val undo: Bool
 
 data class UiState(
     val profiles: List<Profile> = emptyList(),
+    /** The saved profile you're on; ignored while a [preset] is applied. */
     val active: String = "",
+    /** The applied preset, which wins over [active]. You can edit it; [presetEq] holds what you hear. */
+    val preset: String? = null,
+    val presetEq: Eq = Eq.FLAT,
     val mode: Mode = Mode.SIMPLE,
     val selected: Int = 0,
     val cable: Cable = Cable.ABSENT,
@@ -60,20 +64,23 @@ data class UiState(
     val target: Curve? = null,
     val fitting: Boolean = false,
 ) {
-    val eq: Eq get() = profiles.firstOrNull { it.name == active }?.eq ?: Eq.FLAT
+    val eq: Eq get() = if (preset != null) presetEq else profiles.firstOrNull { it.name == active }?.eq ?: Eq.FLAT
+    val presetEdited get() = preset != null && Presets.named(preset)?.eq?.soundsLike(presetEq) != true
+    /** What you're hearing, by name: the preset (marked when you've changed it) or the profile. */
+    val title: String get() = preset?.let { if (presetEdited) "$it · edited" else it } ?: active
 
     /**
-     * The profile that sounds like what the cable is playing. When the cable holds our last write, it must sound
-     * exactly like that EQ (records can't tell 2.3 dB from 2.4 dB, or show the preamp); otherwise matching
-     * records are our best answer. The active profile wins ties.
+     * What the cable is playing, by name: what you're on first, then your profiles, then the presets. When the
+     * cable holds our last write, it must sound exactly like that EQ (records can't tell 2.3 dB from 2.4 dB,
+     * or show the preamp); otherwise matching records are our best answer.
      */
     val playing: String? by lazy {
         val records = onCable ?: return@lazy null
         val ours = lastWritten?.takeIf { CableCoding.matches(it, records) }
-        (listOfNotNull(profiles.firstOrNull { it.name == active }) + profiles)
-            .firstOrNull { if (ours != null) it.eq.soundsLike(ours) else CableCoding.soundsLike(it.eq, records) }?.name
+        (listOf(title to eq) + profiles.map { it.name to it.eq } + Presets.ALL.map { it.name to it.eq })
+            .firstOrNull { (_, e) -> if (ours != null) e.soundsLike(ours) else CableCoding.soundsLike(e, records) }?.first
     }
-    val activeOnCable get() = playing == active
+    val activeOnCable get() = playing == title
     /** The cable holds something this app wrote, even if that profile has been edited since. */
     val cableHasOurWrite: Boolean by lazy { onCable != null && lastWritten?.let { CableCoding.matches(it, onCable) } == true }
     /** Only an EQ from elsewhere (e.g. Moondrop's app) is "not saved here"; it can't appear mid-edit. */
@@ -89,22 +96,34 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
     private var saveJob: Job? = null
     /** The cable restarts itself to save a write; set from the USB thread, read on main. */
     @Volatile private var awaitingRestart = false
-    /** "My EQ" was created flat before the cable was ever read; the first read may replace it. */
-    private var seeded = false
 
     private val _state = MutableStateFlow(UiState())
     val state = _state.asStateFlow()
 
     init {
-        if (store.profiles.isEmpty()) { store.put(FIRST, Eq.FLAT); store.setActive(FIRST); seeded = true }
+        // Earlier versions copied presets into profiles; untouched copies are just the preset again.
+        val copies = store.profiles.mapNotNull { p ->
+            Presets.ALL.firstOrNull { (p.name == it.name || p.name.matches(Regex("${Regex.escape(it.name)} \\d+"))) && p.eq.soundsLike(it.eq) }?.let { p to it }
+        }
+        copies.forEach { (p, _) -> store.delete(p.name) }
+        val activeCopy = copies.firstOrNull { it.first.name == store.active }?.second
+        if (store.preset == null && (activeCopy != null || store.profiles.none { it.name == store.active })) {
+            val first = store.profiles.firstOrNull()
+            if (activeCopy == null && first != null) store.setActive(first.name) else (activeCopy ?: Presets.FLAT).let { store.setPreset(it.name, it.eq) }
+        }
         _state.value = UiState(
-            profiles = store.profiles,
-            active = store.active?.takeIf { a -> store.profiles.any { it.name == a } } ?: store.profiles.first().name,
             mode = store.mode?.let { runCatching { Mode.valueOf(it) }.getOrNull() } ?: Mode.SIMPLE,
             lastWritten = store.lastWritten,
             firstWrite = store.verifiedWrites == 0,
         )
+        sync(jump = false)
         loadCurves()
+    }
+
+    /** Takes profiles, the active one and the preset from the store. */
+    private fun sync(jump: Boolean = true) = _state.update {
+        it.copy(profiles = store.profiles, active = store.active.orEmpty(), preset = store.preset,
+            presetEq = store.presetEq ?: Eq.FLAT, jump = if (jump) it.jump + 1 else it.jump)
     }
 
     val device: UsbDevice? get() = link.find()
@@ -133,15 +152,6 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
     fun read() = cableJob("Reading your cable…") { d ->
         val snap = link.session(d, CableOps::read)
         _state.update { it.copy(onCable = snap.bands) }
-        if (seeded) {
-            seeded = false
-            // First run: start from whatever the cable holds instead of a flat placeholder.
-            val untouched = _state.value.let { it.profiles.size == 1 && it.eq == Eq.FLAT }
-            if (untouched && _state.value.playing == null) {
-                val fromCable = (store.lastWritten?.takeIf { CableCoding.matches(it, snap.bands) } ?: CableCoding.eqFrom(snap.bands)).withSafePreamp()
-                replaceActive(fromCable)
-            }
-        }
     }
 
     fun write() {
@@ -181,66 +191,55 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
         say("Saved what's on your cable. Its gains are rounded to whole dB, which is how the cable stores them.")
     }
 
-    // ---- editing (always the active profile; the preamp follows automatically) ----
+    // ---- editing (whatever you're on: the preset or the profile; the preamp follows automatically) ----
 
     fun setMode(mode: Mode) { _state.update { it.copy(mode = mode) }; store.setMode(mode.name) }
     fun select(index: Int) = _state.update { it.copy(selected = index) }
     fun updateBand(index: Int, band: Band) { _state.update { it.copy(selected = index) }; edit { it.withBand(index, band) } }
     fun setGain(index: Int, gainDb: Double) = edit { it.withBand(index, it.bands[index].copy(gainDb = gainDb)) }
-    fun flatten() = load(_state.value.eq.flattened(), null, "Reset to flat.")
+    /** On a preset this is just the Flat preset; on a profile it clears the bands, with Undo. */
+    fun flatten() {
+        val s = _state.value
+        if (s.preset != null) return applyPreset(Presets.FLAT)
+        val before = snapshot(s.active)
+        replaceActive(s.eq.flattened())
+        offerUndo(before, "Reset \"${s.active}\" to flat.")
+    }
 
-    private fun edit(change: (Eq) -> Eq) = replaceActive(change(_state.value.eq).withSafePreamp(), animate = false)
+    private fun edit(change: (Eq) -> Eq) {
+        val eq = change(_state.value.eq).withSafePreamp()
+        val preset = _state.value.preset ?: return replaceActive(eq, animate = false)
+        _state.update { it.copy(presetEq = eq) }
+        saveLater { store.setPreset(preset, eq) }
+    }
 
     private fun replaceActive(eq: Eq, animate: Boolean = true) {
         val name = _state.value.active
         _state.update { s -> s.copy(profiles = s.profiles.map { if (it.name == name) it.copy(eq = eq) else it }, jump = if (animate) s.jump + 1 else s.jump) }
+        saveLater { store.put(name, eq) }
+    }
+    private fun saveLater(save: () -> Unit) {
         saveJob?.cancel()
-        saveJob = viewModelScope.launch { delay(400); store.put(name, eq) }
+        saveJob = viewModelScope.launch { delay(400); save() }
+    }
+    private fun flushSave() {
+        if (saveJob?.isActive != true) return
+        saveJob?.cancel()
+        val s = _state.value
+        if (s.preset != null) store.setPreset(s.preset, s.presetEq) else store.put(s.active, s.eq)
     }
 
-    // ---- profiles ----
+    // ---- presets and profiles: one of them is what you hear ----
 
+    fun applyPreset(p: Preset) { flushSave(); store.setPreset(p.name, p.eq); sync() }
     fun switchTo(name: String) {
-        if (name == _state.value.active) return
+        if (name == _state.value.active && _state.value.preset == null) return
         flushSave()
         store.setActive(name)
-        _state.update { it.copy(active = name, jump = it.jump + 1) }
+        sync()
     }
-    /** Keeps what you're hearing under a new name; Reset to flat is one tap away if you want a blank one. */
-    fun newProfile(name: String) = addProfile(unique(name.trim().ifEmpty { "New EQ" }), _state.value.eq)
-    /** Trying a preset loads it into the profile you're on (with Undo); "+ New" or Duplicate keep extra ones. */
-    fun applyPreset(p: Preset) = load(p.eq, p.name, "Loaded ${p.name}.")
-
-    /**
-     * Replaces the active profile's sound in one undoable step. A profile still named after a preset or a fit
-     * takes [source] as its new name, so its chip says what it plays; names you chose are kept.
-     */
-    private fun load(eq: Eq, source: String?, message: String) {
-        flushSave()
-        val s = _state.value
-        val before = Profile(s.active, s.eq)
-        val name = source?.takeIf { isAutoName(s.active) && it != s.active }?.let { unique(it) } ?: s.active
-        if (name != s.active) { store.rename(s.active, name); store.setActive(name) }
-        store.put(name, eq.withSafePreamp())
-        _state.update { it.copy(profiles = store.profiles, active = name, jump = it.jump + 1) }
-        undo = before to name
-        _state.update { it.copy(notice = Notice(message, undo = true)) }
-    }
-    private fun isAutoName(name: String) =
-        " · " in name || Regex(""".+ fit( \d+)?""").matches(name) || Presets.ALL.any { name == it.name || Regex("""${Regex.escape(it.name)} \d+""").matches(name) }
-
-    /** What the last load replaced, and the profile it went into. */
-    private var undo: Pair<Profile, String>? = null
-    fun undo() {
-        val (before, now) = undo ?: return
-        undo = null
-        flushSave()
-        if (_state.value.profiles.none { it.name == now }) return
-        if (before.name != now) store.rename(now, before.name)
-        store.put(before.name, before.eq)
-        if (_state.value.active == now) store.setActive(before.name)
-        _state.update { s -> s.copy(profiles = store.profiles, active = if (s.active == now) before.name else s.active, jump = s.jump + 1, notice = null) }
-    }
+    /** Keeps what you're hearing (a preset, maybe edited, or a profile) as a new profile. */
+    fun newProfile(name: String) = addProfile(unique(name.trim().ifEmpty { "My EQ" }), _state.value.eq)
     fun duplicate(name: String) = _state.value.profiles.firstOrNull { it.name == name }?.let { addProfile(unique("${it.name} copy"), it.eq) }
     fun rename(from: String, to: String) {
         val clean = to.trim()
@@ -248,15 +247,16 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
         if (_state.value.profiles.any { it.name == clean }) return say("You already have a profile called \"$clean\".", true)
         flushSave()
         store.rename(from, clean)
-        _state.update { s -> s.copy(profiles = store.profiles, active = if (s.active == from) clean else s.active) }
+        sync(jump = false)
     }
+    /** Deleting the profile you're on moves you to the next one, or to Flat when none are left. */
     fun delete(name: String) {
         flushSave()
         store.delete(name)
-        if (store.profiles.isEmpty()) store.put(FIRST, Eq.FLAT)
-        val active = if (_state.value.active == name) store.profiles.first().name else _state.value.active
-        store.setActive(active)
-        _state.update { it.copy(profiles = store.profiles, active = active, jump = it.jump + 1) }
+        if (store.preset == null && store.active == name) {
+            store.profiles.firstOrNull()?.let { store.setActive(it.name) } ?: store.setPreset(Presets.FLAT.name, Presets.FLAT.eq)
+        }
+        sync()
     }
 
     fun import(text: String, suggestedName: String?) = runCatching { SquigText.parse(text) }.fold(
@@ -267,19 +267,40 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
         onFailure = { say(it.message ?: "That doesn't look like an EQ", true) },
     )
     fun exportText() = SquigText.export(_state.value.eq)
-    val exportName get() = "${_state.value.active}.txt"
+    val exportName get() = "${_state.value.title}.txt"
 
+    /** Saves [eq] as profile [name] (replacing one with that name) and makes it what you hear. */
     private fun addProfile(name: String, eq: Eq) {
         flushSave()
         store.put(name, eq); store.setActive(name)
-        _state.update { it.copy(profiles = store.profiles, active = name, jump = it.jump + 1) }
+        sync()
     }
     private fun unique(base: String): String {
         val names = _state.value.profiles.map { it.name }.toSet()
         return generateSequence(1) { it + 1 }.map { if (it == 1) base else "$base $it" }.first { it !in names }
     }
-    private fun flushSave() {
-        if (saveJob?.isActive == true) { saveJob?.cancel(); store.put(_state.value.active, _state.value.eq) }
+
+    // ---- undo, for the steps that replace a profile's sound ----
+
+    /** Where you were, and what profile [profile] held (null if it didn't exist yet). */
+    private class Snapshot(val preset: String?, val presetEq: Eq, val active: String, val profile: String, val profileEq: Eq?)
+    private var undo: Snapshot? = null
+    private fun snapshot(profile: String) = _state.value.let { s ->
+        Snapshot(s.preset, s.presetEq, s.active, profile, s.profiles.firstOrNull { it.name == profile }?.eq)
+    }
+    private fun offerUndo(before: Snapshot, message: String) {
+        undo = before
+        _state.update { it.copy(notice = Notice(message, undo = true)) }
+    }
+    fun undo() {
+        val u = undo ?: return
+        undo = null
+        flushSave()
+        if (u.profileEq == null) store.delete(u.profile) else store.put(u.profile, u.profileEq)
+        if (store.profiles.any { it.name == u.active }) store.setActive(u.active)
+        if (u.preset != null) store.setPreset(u.preset, u.presetEq)
+        sync()
+        _state.update { it.copy(notice = null) }
     }
 
     // ---- measurements, targets and auto-fit ----
@@ -310,7 +331,7 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun isBuiltInTarget(name: String) = curves.isBuiltIn(name)
 
-    /** Fits the bands that bring your IEM closest to the target, into the profile you're on (with Undo). */
+    /** Fits the bands that bring your IEM closest to the target and keeps them as "<IEM> fit", with Undo. */
     fun autoFit() {
         val s = _state.value
         val m = s.measurement ?: return say("Add your IEM's measurement first.", true)
@@ -324,8 +345,11 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
             }
             _state.update { it.copy(fitting = false) }
             val used = eq.bands.count { it.gainDb != 0.0 }
-            load(eq, "${m.name.replace(Regex("""\s*\([^)]*\)"""), "").take(28).trim()} fit", String.format(java.util.Locale.US,
-                "Fitted with %d band%s: %.1f dB off the target, now %.1f dB.", used, if (used == 1) "" else "s", before, after))
+            val name = "${m.name.replace(Regex("""\s*\([^)]*\)"""), "").take(28).trim()} fit"
+            val snap = snapshot(name)
+            addProfile(name, eq)
+            offerUndo(snap, String.format(java.util.Locale.US, "%s \"%s\" with %d band%s: %.1f dB off the target, now %.1f dB.",
+                if (snap.profileEq == null) "Saved" else "Updated", name, used, if (used == 1) "" else "s", before, after))
         }
     }
 
@@ -348,7 +372,6 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
     override fun onCleared() { flushSave(); usb.close() }
 
     private companion object {
-        const val FIRST = "My EQ"
         const val DEFAULT_TARGET = "Harman in-ear 2019"
         const val SAVING = "Your cable is saving the EQ…"
     }
