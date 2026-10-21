@@ -57,7 +57,7 @@ SHA-256: 72:FF:4F:0D:27:DB:55:D2:66:5F:3F:30:89:2C:D3:47:7E:9C:EB:3A:43:AE:57:6C
 ```
 
 ```sh
-apksigner verify --print-certs FreeDSP-Android-0.6.0.apk
+apksigner verify --print-certs FreeDSP-Android-*.apk
 ```
 
 ## Build it yourself
