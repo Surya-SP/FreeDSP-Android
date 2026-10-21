@@ -12,7 +12,7 @@ class Gen1Test {
         for (n in 1..9) assertArrayEquals(frame("01 00 0D 00 DD 01 00 23 2D B3 %02X".format(n)), Gen1.readBand(n).bytes)
     }
 
-    // Golden vectors computed independently in Python from upstream's formulas (docs/KNOWLEDGE.md §4).
+    // Golden vectors computed independently in Python from upstream's formulas.
     @Test fun writeFramesMatchGoldenVectors() {
         assertArrayEquals(frame("01 00 0D 00 5A 00 00 23 2D B3 5A"), Gen1.selectCustomBank().bytes)
         assertArrayEquals(frame("01 00 0D 00 DC 00 00 23 2D B3 00 00 00 00 01 00 00 00 67 00 00 00 B4"),
@@ -35,7 +35,7 @@ class Gen1Test {
         assertThrows(IllegalArgumentException::class.java) { Gen1.writeCoefficients(4, 1, IntArray(4)) }
     }
 
-    // Captured from the physical cable (FreeDSP Diagnostics v1.0.4, 2026-10-20).
+    // Captured from the physical cable.
     private val capturedMode = frame("01 00 0D 00 5A 81 00 23 2D B3 5A")
     private val capturedBand3 = frame("01 00 06 00 DD 81 00 23 2D B3 05 00 00 00 03 00 00 00 32 01 00 00 B4")
 

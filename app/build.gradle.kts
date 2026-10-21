@@ -16,7 +16,7 @@ android {
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
     lint { abortOnError = true }
-    // Same external debug identity as FreeDSP Diagnostics; see docs/KNOWLEDGE.md §7. Never commit the key.
+    // Optional: sign debug builds with a key kept outside the repo, so updates install over each other. Never commit it.
     val debugKey = providers.environmentVariable("FREEDSP_DEBUG_KEYSTORE")
     if (debugKey.isPresent) {
         signingConfigs.getByName("debug") {

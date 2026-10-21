@@ -8,7 +8,6 @@ import com.wellmosphere.freedsp.cable.NativeHidAccess.Result
  * Linux 5.4 devio.c: DISCONNECT_CLAIM unbinds only this interface; RELEASEINTERFACE and fd close do NOT rebind,
  * so every path that may have detached usbhid ends in exactly one CONNECT followed by a GETDRIVER check.
  * Process death leaves interface 3 unbound (physically confirmed): the marker survives so the app can restore.
- * Decision logic is the FreeDSP Diagnostics v1.0.5 implementation; see docs/KNOWLEDGE.md §2.
  */
 class HidTakeover(private val native: (Op) -> Result, private val marker: Marker, private val log: (String) -> Unit) {
     interface Marker { fun set(); fun clear() }

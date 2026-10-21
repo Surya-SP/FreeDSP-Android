@@ -5,7 +5,7 @@ import java.nio.ByteOrder
 
 /**
  * Original FreeDSP (gen-1) wire format, independently implemented from FreeDSP-Studio 1b42f63 dsp.rs (MIT).
- * Reads are proven on the physical cable; writes follow upstream byte for byte. See docs/KNOWLEDGE.md §3–4.
+ * Reads and writes are verified on the physical cable; writes follow upstream byte for byte.
  * Frames can only be built through the typed functions below: there is no raw command or payload API.
  */
 object Gen1 {
