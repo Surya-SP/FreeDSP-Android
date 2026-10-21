@@ -61,6 +61,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -109,7 +110,10 @@ import kotlin.math.pow
 private data class Naming(val from: String?)
 
 @Composable
-fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImport: (CurveStore.Kind?) -> Unit, onExport: () -> Unit) {
+fun EqScreen(
+    state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImport: (CurveStore.Kind?) -> Unit, onExport: () -> Unit,
+    onBackup: () -> Unit, onRestore: () -> Unit,
+) {
     var confirmWrite by rememberSaveable { mutableStateOf(false) }
     var naming by remember { mutableStateOf<Naming?>(null) }
     var deleting by remember { mutableStateOf<String?>(null) }
@@ -130,6 +134,10 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
             Header(state, onAllowAccess, Modifier.padding(horizontal = 20.dp)) { close ->
                 DropdownMenuItem(text = { Text("Open EQ file") }, onClick = { close(); onImport(null) })
                 DropdownMenuItem(text = { Text("Paste EQ text") }, onClick = { close(); clipboard.getText()?.text?.let { vm.import(it, null) } ?: vm.say("Copy some parametric EQ text first.", true) })
+                HorizontalDivider(color = Palette.Line)
+                DropdownMenuItem(text = { Text("Back up all profiles") }, enabled = state.profiles.isNotEmpty(), onClick = { close(); onBackup() })
+                DropdownMenuItem(text = { Text("Restore profiles from a backup") }, onClick = { close(); onRestore() })
+                HorizontalDivider(color = Palette.Line)
                 DropdownMenuItem(text = { Text("Read the cable again") }, enabled = state.cable == Cable.READY && state.busy == null, onClick = { close(); vm.read() })
             }
             SoundPicker(

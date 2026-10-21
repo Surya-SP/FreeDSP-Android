@@ -39,4 +39,19 @@ class AutoFitTest {
         assertFalse(Response.clips(fitted))
         assertEquals(56, CableCoding.plan(fitted).frames.size)
     }
+
+    @Test fun bandsComeBackInFrequencyOrder() {
+        val iem = iemMissing(Eq.FLAT.withBand(2, Band(300.0, -3.0, 1.0)).withBand(7, Band(4500.0, 3.0, 2.0)))
+        val hz = AutoFit.fit(iem, harman).bands.map { it.freqHz }
+        assertEquals(hz.sorted(), hz)
+    }
+
+    @Test fun stoppingEarlyLeavesTheTrebleAlone() {
+        // The only problem is above 8 kHz, so a fit that stops at 6 kHz has nothing to do.
+        val iem = iemMissing(Eq.FLAT.withBand(8, Band(9000.0, -6.0, 3.0)))
+        val fitted = AutoFit.fit(iem, harman, upTo = 6_000.0)
+        assertTrue(fitted.bands.filter { it.gainDb != 0.0 }.all { it.freqHz <= 6_000.0 })
+        assertTrue(AutoFit.error(iem, harman, fitted, 6_000.0) < 0.3)
+        assertTrue(AutoFit.fit(iem, harman).bands.any { it.gainDb != 0.0 && it.freqHz > 8_000.0 })
+    }
 }

@@ -30,21 +30,27 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** What the file picker is fetching: an EQ (null), or a measurement or target curve. */
+    /** What the file picker is fetching: an EQ (null), or a measurement or target curve; or a profiles backup. */
     private var importing: CurveStore.Kind? = null
+    private var restoring = false
     private val openFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@registerForActivityResult
         val name = runCatching {
             contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
         }.getOrNull()
         runCatching { contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() } }
-            .onSuccess { text -> importing?.let { vm.importCurve(it, text, name) } ?: vm.import(text, name) }
+            .onSuccess { text -> if (restoring) vm.restore(text) else importing?.let { vm.importCurve(it, text, name) } ?: vm.import(text, name) }
             .onFailure { vm.say("Couldn't open that file", true) }
     }
     private val saveFile = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         uri ?: return@registerForActivityResult
         runCatching { contentResolver.openOutputStream(uri)!!.bufferedWriter().use { it.write(vm.exportText()) } }
             .onSuccess { vm.say("Exported.") }.onFailure { vm.say("Couldn't save that file", true) }
+    }
+    private val saveBackup = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri ?: return@registerForActivityResult
+        runCatching { contentResolver.openOutputStream(uri)!!.bufferedWriter().use { it.write(vm.backupText()) } }
+            .onSuccess { vm.say("Backed up ${vm.state.value.profiles.size} profiles.") }.onFailure { vm.say("Couldn't save that file", true) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,8 +64,10 @@ class MainActivity : ComponentActivity() {
             FreeDspTheme {
                 val state by vm.state.collectAsStateWithLifecycle()
                 EqScreen(state, vm, onAllowAccess = ::askForAccess,
-                    onImport = { kind -> importing = kind; openFile.launch(arrayOf("text/*", "application/octet-stream")) },
-                    onExport = { saveFile.launch(vm.exportName) })
+                    onImport = { kind -> importing = kind; restoring = false; openFile.launch(arrayOf("text/*", "application/octet-stream")) },
+                    onExport = { saveFile.launch(vm.exportName) },
+                    onBackup = { saveBackup.launch(vm.backupName) },
+                    onRestore = { restoring = true; openFile.launch(arrayOf("application/json", "text/*", "application/octet-stream")) })
             }
         }
     }

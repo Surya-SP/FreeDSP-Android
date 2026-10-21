@@ -29,12 +29,12 @@ class ProfileStore(dir: File) {
     init {
         runCatching {
             val root = JSONObject(file.readText())
-            profiles = root.getJSONArray("profiles").let { a -> (0 until a.length()).map { profile(a.getJSONObject(it)) } }
+            profiles = root.getJSONArray("profiles").let { a -> (0 until a.length()).map { EqJson.profile(a.getJSONObject(it)) } }
             active = root.optString("active").ifEmpty { null }
             preset = root.optString("preset").ifEmpty { null }
-            presetEq = root.optJSONObject("presetEq")?.let(::eq)
+            presetEq = root.optJSONObject("presetEq")?.let(EqJson::read)
             mode = root.optString("mode").ifEmpty { null }
-            lastWritten = root.optJSONObject("lastWritten")?.let(::eq)
+            lastWritten = root.optJSONObject("lastWritten")?.let(EqJson::read)
             verifiedWrites = root.optInt("verifiedWrites")
         }
     }
@@ -59,26 +59,32 @@ class ProfileStore(dir: File) {
 
     private fun persist() {
         val root = JSONObject()
-            .put("profiles", JSONArray(profiles.map { JSONObject().put("name", it.name).put("eq", json(it.eq)) }))
+            .put("profiles", JSONArray(profiles.map(EqJson::profileJson)))
             .put("active", active ?: "").put("mode", mode ?: "")
-            .put("preset", preset ?: "").put("presetEq", presetEq?.let(::json) ?: JSONObject.NULL)
-            .put("lastWritten", lastWritten?.let(::json) ?: JSONObject.NULL)
+            .put("preset", preset ?: "").put("presetEq", presetEq?.let(EqJson::write) ?: JSONObject.NULL)
+            .put("lastWritten", lastWritten?.let(EqJson::write) ?: JSONObject.NULL)
             .put("verifiedWrites", verifiedWrites)
         val temp = File(file.parentFile, "profiles.tmp")
         temp.writeText(root.toString(2))
         check(temp.renameTo(file)) { "Couldn't save profiles" }
     }
 
-    private fun json(eq: Eq) = JSONObject().put("preampDb", eq.preampDb).put("bands", JSONArray(eq.bands.map {
+}
+
+
+/** EQs and profiles as JSON, shared by the store and backups. */
+internal object EqJson {
+    fun write(eq: Eq): JSONObject = JSONObject().put("preampDb", eq.preampDb).put("bands", JSONArray(eq.bands.map {
         JSONObject().put("freqHz", it.freqHz).put("gainDb", it.gainDb).put("q", it.q).put("type", it.type.name)
     }))
-    private fun eq(o: JSONObject): Eq {
+    fun read(o: JSONObject): Eq {
         val a = o.getJSONArray("bands")
         val bands = (0 until a.length()).map { i -> a.getJSONObject(i).let {
             Band(it.getDouble("freqHz"), it.getDouble("gainDb"), it.getDouble("q"), FilterType.valueOf(it.getString("type")))
         } }
         return Eq(bands, o.getDouble("preampDb"))
     }
-    /** Profiles saved under wider, older limits are brought into the cable's range as they load. */
-    private fun profile(o: JSONObject) = Profile(o.getString("name"), eq(o.getJSONObject("eq")).let { e -> Eq(e.bands.map(Limits::clamp)).withSafePreamp() })
+    /** Profiles saved under wider, older limits (or edited by hand) are brought into the cable's range as they load. */
+    fun profile(o: JSONObject) = Profile(o.getString("name"), read(o.getJSONObject("eq")).let { e -> Eq(e.bands.map(Limits::clamp)).withSafePreamp() })
+    fun profileJson(p: Profile): JSONObject = JSONObject().put("name", p.name).put("eq", write(p.eq))
 }

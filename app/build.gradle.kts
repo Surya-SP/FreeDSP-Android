@@ -8,8 +8,8 @@ android {
         applicationId = "com.wellmosphere.freedsp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = "0.6.0"
+        versionCode = 18
+        versionName = "0.7.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
     buildFeatures { compose = true }
@@ -46,4 +46,5 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303") // Android's org.json is a stub in local unit tests
 }

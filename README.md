@@ -6,6 +6,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Surya-SP/FreeDSP-Android/actions/workflows/build.yml"><img alt="Build" src="https://github.com/Surya-SP/FreeDSP-Android/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-3ddc84?logo=android&logoColor=white">
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7f52ff?logo=kotlin&logoColor=white">
   <img alt="No internet permission" src="https://img.shields.io/badge/internet-not%20used-6ee7c7">
@@ -29,7 +30,7 @@ The FreeDSP is a USB-C cable with a small DSP inside: it keeps a 9-band EQ in it
 - **Two ways to edit.** *Simple* is a graphic EQ with nine sliders. *Parametric* lets you drag bands around the response graph and set frequency, gain, Q and filter type (peak, low shelf, high shelf) exactly.
 - **No fighting the page.** Tap a slider or a point to pick it, then drag. While a band is picked, the page doesn't scroll; tap anywhere else to let go.
 - **17 presets.** Bass boost, Rock, Vocal, Podcast, Hall, Late night and more, all designed inside the cable's range so none of them distort.
-- **Profiles.** Save what you hear, rename, copy, delete, and export as text. A dot shows which one the cable is playing.
+- **Profiles.** Save what you hear, rename, copy, delete, and export as text. A dot shows which one the cable is playing. Back up every profile to one file and restore it on a new phone or after a reinstall.
 - **Match a target.** Import your IEM's measurement (squig.link or AutoEq text), pick a target such as Harman in-ear 2019 or diffuse field, and auto-fit finds the bands that get you there.
 - **Import and export.** Paste or open AutoEQ / Equalizer APO parametric EQ text; export any profile the same way.
 - **Safe by default.** The preamp is set automatically so the loudest point stays at 0 dB, and anything that could clip is refused before it reaches the cable.
@@ -102,7 +103,7 @@ export FREEDSP_RELEASE_PASSWORD='the password you chose'
 ./gradlew assembleRelease          # app/build/outputs/apk/release/app-release.apk
 ```
 
-Without those variables `assembleRelease` still works but gives an unsigned APK. Android only installs an update over an app signed with the same key, so if you switch between your build and the official one, uninstall first (export your profiles before you do).
+Without those variables `assembleRelease` still works but gives an unsigned APK. Android only installs an update over an app signed with the same key, so if you switch between your build and the official one, uninstall first. Use **⋮ › Back up all profiles** before you do, and **Restore profiles from a backup** afterwards.
 
 ## Using it
 
@@ -115,9 +116,9 @@ Without those variables `assembleRelease` still works but gives an unsigned APK.
 
 1. Find your IEM on a squig.link site or in the [AutoEq database](https://github.com/jaakkopasanen/AutoEq/tree/master/results) and save its frequency response as a text file.
 2. In **Match a target**, import it under **Your IEM** and pick a **Target**.
-3. Tap **Auto-fit to this target**. You get a profile called "*your IEM* fit" and a note saying how far from the target it was before and after.
+3. Choose where the fit stops (**Fit up to** 6, 8 or 10 kHz), then tap **Auto-fit to this target**. You get a profile called "*your IEM* fit" and a note saying how far from the target it was before and after.
 
-Measurements above about 6 kHz differ a lot between rigs and ears, so treat the treble as a starting point and trust your ears there.
+Measurements of the top octave differ a lot between rigs and ears. That's why the fit stops at 8 kHz by default; above that, trust your ears.
 
 ## How it talks to the cable
 

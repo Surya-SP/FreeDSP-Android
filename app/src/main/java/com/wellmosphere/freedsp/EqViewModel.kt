@@ -20,6 +20,7 @@ import com.wellmosphere.freedsp.eq.Response
 import com.wellmosphere.freedsp.eq.SquigText
 import com.wellmosphere.freedsp.store.Profile
 import com.wellmosphere.freedsp.store.CurveStore
+import com.wellmosphere.freedsp.store.ProfileBackup
 import com.wellmosphere.freedsp.store.ProfileStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -63,6 +64,8 @@ data class UiState(
     val measurement: Curve? = null,
     val target: Curve? = null,
     val fitting: Boolean = false,
+    /** Auto-fit leaves the EQ alone above this (Hz). */
+    val fitUpTo: Double = 8_000.0,
 ) {
     val eq: Eq get() = if (preset != null) presetEq else profiles.firstOrNull { it.name == active }?.eq ?: Eq.FLAT
     val presetEdited get() = preset != null && Presets.named(preset)?.eq?.soundsLike(presetEq) != true
@@ -118,6 +121,7 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
         )
         sync(jump = false)
         loadCurves()
+        _state.update { it.copy(fitUpTo = curves.fitUpTo) }
     }
 
     /** Takes profiles, the active one and the preset from the store. */
@@ -258,6 +262,24 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
         onFailure = { say(it.message ?: "That doesn't look like an EQ", true) },
     )
     fun exportText() = SquigText.export(_state.value.eq)
+
+    fun backupText(): String { flushSave(); return ProfileBackup.encode(_state.value.profiles) }
+    val backupName get() = "FreeDSP profiles ${java.time.LocalDate.now()}.json"
+    fun restore(text: String) = runCatching { ProfileBackup.decode(text) }.fold(
+        onSuccess = { backup ->
+            flushSave()
+            val (added, skipped) = ProfileBackup.merge(_state.value.profiles, backup)
+            added.forEach { store.put(it.name, it.eq) }
+            sync(jump = false)
+            say(when {
+                backup.isEmpty() -> "That backup has no profiles in it."
+                added.isEmpty() -> "You already have " + when (backup.size) { 1 -> "that profile."; 2 -> "both of those profiles."; else -> "all ${backup.size} of those profiles." }
+                else -> "Restored ${plural(added.size, "profile")}." + if (skipped > 0) " ${plural(skipped, "was", "were")} already here." else ""
+            })
+        },
+        onFailure = { say(it.message ?: "Couldn't read that backup", true) },
+    )
+    private fun plural(n: Int, one: String, many: String = one + "s") = if (n == 1) "1 $one" else "$n $many"
     val exportName get() = "${_state.value.title}.txt"
 
     /** Saves [eq] as profile [name] (replacing one with that name) and makes it what you hear. */
@@ -322,6 +344,7 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun isBuiltInTarget(name: String) = curves.isBuiltIn(name)
     fun aboutTarget(name: String) = curves.about(name)
+    fun setFitUpTo(hz: Double) { curves.fitUpTo = hz; _state.update { it.copy(fitUpTo = hz) } }
 
     /** Fits the bands that bring your IEM closest to the target and keeps them as "<IEM> fit", with Undo. */
     fun autoFit() {
@@ -332,8 +355,8 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(fitting = true) }
         viewModelScope.launch {
             val (eq, before, after) = withContext(Dispatchers.Default) {
-                val eq = AutoFit.fit(m, t)
-                Triple(eq, AutoFit.error(m, t, Eq.FLAT), AutoFit.error(m, t, eq))
+                val eq = AutoFit.fit(m, t, s.fitUpTo)
+                Triple(eq, AutoFit.error(m, t, Eq.FLAT, s.fitUpTo), AutoFit.error(m, t, eq, s.fitUpTo))
             }
             _state.update { it.copy(fitting = false) }
             val used = eq.bands.count { it.gainDb != 0.0 }

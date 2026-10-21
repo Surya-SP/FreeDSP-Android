@@ -49,6 +49,11 @@ class CurveStore(private val context: Context) {
         )
     }
 
+    /** Where auto-fit stops, in Hz. */
+    var fitUpTo: Double
+        get() = prefs.getFloat("fitUpTo", 8_000f).toDouble()
+        set(v) = prefs.edit().putFloat("fitUpTo", v.toFloat()).apply()
+
     fun selected(kind: Kind): String? = prefs.getString(kind.name, null)
     fun select(kind: Kind, name: String?) = prefs.edit().putString(kind.name, name).apply()
 }

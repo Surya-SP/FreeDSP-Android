@@ -17,6 +17,8 @@ import kotlin.math.sqrt
  * (its "range" mode), which follows AutoEq (Jaakko Pasanen, MIT): matching-pursuit start, then per-parameter
  * golden-section refinement of an MSE loss with a sharpness penalty; outside the range the EQ is pushed flat.
  * Stacked bands are merged and bands that barely help are dropped, so fewer than nine may come back.
+ * The fit can stop below the cable's top ([fit]'s upTo): above it the EQ is left alone, since measurements of the
+ * top octave depend more on the rig and the ear than on the IEM.
  */
 object AutoFit {
     private const val N = 180
@@ -35,7 +37,8 @@ object AutoFit {
     private enum class P { FREQ, GAIN, Q }
 
     private val lo = Limits.FREQ.start
-    private val hi = Limits.FREQ.endInclusive
+    /** The choices offered for where the fit stops. */
+    val UP_TO = listOf(6_000.0, 8_000.0, Limits.FREQ.endInclusive)
     private val gMin = Limits.GAIN.start
     private val gMax = Limits.GAIN.endInclusive
     private val qMin = Limits.Q.start
@@ -63,7 +66,7 @@ object AutoFit {
 
     private fun sharpPenalty(b: B) = if (b.q > 4) 0.0006 * (b.q - 4) * (b.q - 4) * (b.gain * b.gain + 1) else 0.0
 
-    private fun loss(band: B, others: DoubleArray, err: DoubleArray): Double {
+    private fun loss(band: B, others: DoubleArray, err: DoubleArray, hi: Double): Double {
         val r = resp(band)
         var se = 0.0; var n = 0; var spill = 0.0; var sn = 0
         for (i in 0..N) {
@@ -74,8 +77,8 @@ object AutoFit {
         return (if (n > 0) se / n else 0.0) + (if (sn > 0) SPILL_W * spill / sn else 0.0) + sharpPenalty(band)
     }
 
-    private fun lossAll(bands: List<B>, err: DoubleArray) =
-        loss(B(1000.0, 0.0, 1.0), respExcept(bands, -1), err) + bands.sumOf(::sharpPenalty)
+    private fun lossAll(bands: List<B>, err: DoubleArray, hi: Double) =
+        loss(B(1000.0, 0.0, 1.0), respExcept(bands, -1), err, hi) + bands.sumOf(::sharpPenalty)
 
     private fun get(b: B, p: P) = when (p) { P.FREQ -> b.freq; P.GAIN -> b.gain; P.Q -> b.q }
     private fun put(b: B, p: P, v: Double, a: Double, c: Double) = when (p) {
@@ -85,14 +88,14 @@ object AutoFit {
     }
 
     /** Golden-section on one parameter; only moves if it actually helps (the loss is bumpy along frequency). */
-    private fun opt(bands: List<B>, k: Int, p: P, a0: Double, c0: Double, err: DoubleArray, log: Boolean) {
+    private fun opt(bands: List<B>, k: Int, p: P, a0: Double, c0: Double, err: DoubleArray, log: Boolean, hi: Double) {
         val others = respExcept(bands, k)
         val b = bands[k]
         var a = if (log) ln(a0) else a0; var c = if (log) ln(c0) else c0
         fun v(x: Double) = if (log) exp(x) else x
-        fun ev(x: Double): Double { put(b, p, v(x), a0, c0); return loss(b, others, err) }
+        fun ev(x: Double): Double { put(b, p, v(x), a0, c0); return loss(b, others, err, hi) }
         val keep = get(b, p)
-        val before = loss(b, others, err)
+        val before = loss(b, others, err, hi)
         val gr = (sqrt(5.0) - 1) / 2
         var x1 = c - gr * (c - a); var x2 = a + gr * (c - a)
         var f1 = ev(x1); var f2 = ev(x2)
@@ -101,11 +104,12 @@ object AutoFit {
             else { a = x1; x1 = x2; f1 = f2; x2 = a + gr * (c - a); f2 = ev(x2) }
         }
         put(b, p, v((a + c) / 2), a0, c0)
-        if (loss(b, others, err) > before) when (p) { P.FREQ -> b.freq = keep; P.GAIN -> b.gain = keep; P.Q -> b.q = keep }
+        if (loss(b, others, err, hi) > before) when (p) { P.FREQ -> b.freq = keep; P.GAIN -> b.gain = keep; P.Q -> b.q = keep }
     }
 
-    /** The bands that bring [measurement] closest to [target], as a full nine-band EQ with a safe preamp. */
-    fun fit(measurement: Curve, target: Curve): Eq {
+    /** The bands that bring [measurement] closest to [target] up to [upTo] Hz, as a nine-band EQ in frequency order with a safe preamp. */
+    fun fit(measurement: Curve, target: Curve, upTo: Double = Limits.FREQ.endInclusive): Eq {
+        val hi = upTo.coerceIn(lo, Limits.FREQ.endInclusive)
         val err = DoubleArray(N + 1) { target.at(fs[it]) - measurement.at(fs[it]) }
         val inRange = BooleanArray(N + 1) { fs[it] in lo..hi }
         fun near(bands: List<B>, i: Int) = bands.any { abs(log2(fs[i] / it.freq)) < STACK_OCT }
@@ -130,9 +134,9 @@ object AutoFit {
 
         fun refine(bands: List<B>, rounds: Int) = repeat(rounds) {
             for (k in bands.indices) {
-                opt(bands, k, P.GAIN, gMin, gMax, err, false)
-                opt(bands, k, P.Q, qMin, qMax, err, false)
-                opt(bands, k, P.FREQ, maxOf(lo, bands[k].freq / 2), minOf(hi, bands[k].freq * 2), err, true)
+                opt(bands, k, P.GAIN, gMin, gMax, err, false, hi)
+                opt(bands, k, P.Q, qMin, qMax, err, false, hi)
+                opt(bands, k, P.FREQ, maxOf(lo, bands[k].freq / 2), minOf(hi, bands[k].freq * 2), err, true, hi)
             }
         }
         // Fold pairs closer than STACK_OCT into one band (|gain|-weighted centre and width, gains summed).
@@ -172,25 +176,25 @@ object AutoFit {
             // Drop bands that do nothing: near-flat ones, then whichever costs least to lose, while under PRUNE_DB.
             bands.removeAll { abs(it.gain) <= 0.1 }
             while (bands.size > 1) {
-                val base = sqrt(lossAll(bands, err))
-                val (k, cost) = bands.indices.map { k -> k to sqrt(lossAll(bands.filterIndexed { j, _ -> j != k }, err)) - base }.minBy { it.second }
+                val base = sqrt(lossAll(bands, err, hi))
+                val (k, cost) = bands.indices.map { k -> k to sqrt(lossAll(bands.filterIndexed { j, _ -> j != k }, err, hi)) - base }.minBy { it.second }
                 if (cost >= PRUNE_DB) break
                 bands.removeAt(k); refine(bands, 1)
             }
             if (mergeStacked(bands) > 0) refine(bands, 1)
             mergeStacked(bands)
-            return bands to lossAll(bands, err)
+            return bands to lossAll(bands, err, hi)
         }
 
         val plain = finish(false); val merged = finish(true)
         val best = (if (merged.second < plain.second) merged else plain).first.sortedBy { it.freq }
         val fitted = best.map { Limits.clamp(Band(it.freq, it.gain, it.q)) }
-        return Eq(fitted + Eq.FLAT.bands.drop(fitted.size)).withSafePreamp()
+        return Eq((fitted + Eq.FLAT.bands.drop(fitted.size)).sortedBy { it.freqHz }).withSafePreamp()
     }
 
-    /** RMS distance (dB) between target and measurement + [eq] across the fit range: lower is closer. */
-    fun error(measurement: Curve, target: Curve, eq: Eq): Double {
-        val inside = fs.filter { it in lo..hi }.toDoubleArray()
+    /** RMS distance (dB) between target and measurement + [eq] from the cable's bottom up to [upTo] Hz: lower is closer. */
+    fun error(measurement: Curve, target: Curve, eq: Eq, upTo: Double = Limits.FREQ.endInclusive): Double {
+        val inside = fs.filter { it in lo..upTo }.toDoubleArray()
         val bands = Response.curve(eq, inside)
         val diffs = inside.indices.map { target.at(inside[it]) - measurement.at(inside[it]) - bands[it] }
         val mean = diffs.average() // overall level doesn't matter, only shape

@@ -25,9 +25,11 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.unit.dp
 import com.wellmosphere.freedsp.EqViewModel
 import com.wellmosphere.freedsp.UiState
+import com.wellmosphere.freedsp.eq.AutoFit
 import com.wellmosphere.freedsp.store.CurveStore.Kind
 import com.wellmosphere.freedsp.ui.components.ChoiceField
 import com.wellmosphere.freedsp.ui.components.Panel
+import com.wellmosphere.freedsp.ui.components.PillSwitch
 import com.wellmosphere.freedsp.ui.components.rememberShimmer
 import com.wellmosphere.freedsp.ui.components.springClick
 import com.wellmosphere.freedsp.ui.theme.Palette
@@ -39,7 +41,7 @@ fun FitPanel(state: UiState, vm: EqViewModel, onImport: (Kind) -> Unit) = Panel 
     Text(
         "Add your IEM's measurement, pick a sound to aim for, and auto-fit finds the bands that get you there. " +
             "Measurements are on squig.link sites and in AutoEq's database; save one as text, then import it. " +
-            "Above about 6 kHz measurements are rough, so trust your ears there.",
+            "Treble measurements vary a lot between rigs and ears, so you can stop the fit below the top and trust your ears there.",
         style = MaterialTheme.typography.bodyMedium, color = Palette.Muted, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
     )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -54,6 +56,9 @@ fun FitPanel(state: UiState, vm: EqViewModel, onImport: (Kind) -> Unit) = Panel 
             onRemove = { vm.deleteCurve(Kind.TARGET, it) }, removable = { !vm.isBuiltInTarget(it) }, describe = vm::aboutTarget,
         )
     }
+    Text("Fit up to", style = MaterialTheme.typography.labelMedium, color = Palette.Muted, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
+    PillSwitch(AutoFit.UP_TO.map { "${(it / 1000).toInt()} kHz" }, AutoFit.UP_TO.indexOf(state.fitUpTo).coerceAtLeast(0),
+        { vm.setFitUpTo(AutoFit.UP_TO[it]) }, height = 42.dp)
     AnimatedVisibility(state.measurement != null && state.target != null) {
         Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Legend("Target", Palette.Warm, dashed = true)
