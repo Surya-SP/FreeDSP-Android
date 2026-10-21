@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -170,11 +171,12 @@ private fun ProfileMenu(
                 onClick = { dismiss(); onSelect(p.name) },
             )
             AnimatedVisibility(tools == p.name) {
-                Row(Modifier.padding(start = 40.dp, end = 8.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Tool("Rename") { dismiss(); actions.rename(p.name) }
-                    Tool("Copy") { dismiss(); actions.duplicate(p.name) }
-                    Tool("Export") { dismiss(); actions.export(p.name) }
-                    Tool("Delete", Palette.Alert) { dismiss(); actions.delete(p.name) }
+                // Four equal slots across the menu, so every action fits whatever the font size.
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(bottom = 4.dp)) {
+                    Tool("Rename", Modifier.weight(1f)) { dismiss(); actions.rename(p.name) }
+                    Tool("Copy", Modifier.weight(1f)) { dismiss(); actions.duplicate(p.name) }
+                    Tool("Export", Modifier.weight(1f)) { dismiss(); actions.export(p.name) }
+                    Tool("Delete", Modifier.weight(1f), Palette.Alert) { dismiss(); actions.delete(p.name) }
                 }
             }
         }
@@ -184,5 +186,7 @@ private fun ProfileMenu(
 }
 
 @Composable
-private fun Tool(label: String, color: Color = Palette.Text, onClick: () -> Unit) =
-    TextButton(onClick = onClick, modifier = Modifier.height(36.dp)) { Text(label, style = MaterialTheme.typography.labelMedium, color = color) }
+private fun Tool(label: String, modifier: Modifier, color: Color = Palette.Text, onClick: () -> Unit) =
+    TextButton(onClick = onClick, modifier = modifier.height(36.dp), contentPadding = PaddingValues(horizontal = 2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = color, maxLines = 1, softWrap = false)
+    }
