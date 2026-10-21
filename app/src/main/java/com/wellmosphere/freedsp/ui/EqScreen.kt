@@ -47,6 +47,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
+import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -185,6 +187,9 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
             NoticeBar(state.notice, vm::dismissNotice)
             WriteBar(state, onAllowAccess = onAllowAccess, onWrite = { confirmWrite = true })
         }
+        // Content scrolls under the transparent status bar; fade it out behind the clock and icons.
+        Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(
+            Brush.verticalGradient(listOf(Palette.Ink, Palette.Ink.copy(alpha = 0.85f)))))
         AnimatedVisibility(presetsOpen, enter = slideInVertically { it / 4 } + fadeIn(), exit = slideOutVertically { it / 4 } + fadeOut()) {
             PresetsPage(
                 owned = { p -> state.profiles.any { it.eq.soundsLike(p.eq) } },

@@ -259,7 +259,8 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { s ->
             s.copy(measurements = ms, targets = ts,
                 measurement = ms.firstOrNull { it.name == curves.selected(CurveStore.Kind.MEASUREMENT) } ?: ms.firstOrNull(),
-                target = ts.firstOrNull { it.name == curves.selected(CurveStore.Kind.TARGET) } ?: ts.firstOrNull())
+                target = ts.firstOrNull { it.name == curves.selected(CurveStore.Kind.TARGET) }
+                    ?: ts.firstOrNull { it.name == DEFAULT_TARGET } ?: ts.firstOrNull())
         }
     }
     fun pickCurve(kind: CurveStore.Kind, name: String) { curves.select(kind, name); loadCurves() }
@@ -318,6 +319,7 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         const val FIRST = "My EQ"
+        const val DEFAULT_TARGET = "Harman in-ear 2019"
         const val SAVING = "Your cable is saving the EQ…"
     }
 }
