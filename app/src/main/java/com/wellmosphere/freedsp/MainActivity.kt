@@ -17,6 +17,7 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.wellmosphere.freedsp.store.CurveStore
 import com.wellmosphere.freedsp.ui.EqScreen
 import com.wellmosphere.freedsp.ui.theme.FreeDspTheme
 
@@ -29,13 +30,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** What the file picker is fetching: an EQ (null), or a measurement or target curve. */
+    private var importing: CurveStore.Kind? = null
     private val openFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@registerForActivityResult
         val name = runCatching {
             contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
         }.getOrNull()
         runCatching { contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() } }
-            .onSuccess { vm.import(it, name) }.onFailure { vm.say("Couldn't open that file", true) }
+            .onSuccess { text -> importing?.let { vm.importCurve(it, text, name) } ?: vm.import(text, name) }
+            .onFailure { vm.say("Couldn't open that file", true) }
     }
     private val saveFile = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         uri ?: return@registerForActivityResult
@@ -54,7 +58,7 @@ class MainActivity : ComponentActivity() {
             FreeDspTheme {
                 val state by vm.state.collectAsStateWithLifecycle()
                 EqScreen(state, vm, onAllowAccess = ::askForAccess,
-                    onImport = { openFile.launch(arrayOf("text/*", "application/octet-stream")) },
+                    onImport = { kind -> importing = kind; openFile.launch(arrayOf("text/*", "application/octet-stream")) },
                     onExport = { saveFile.launch(vm.exportName) })
             }
         }

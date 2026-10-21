@@ -81,6 +81,7 @@ import com.wellmosphere.freedsp.Cable
 import com.wellmosphere.freedsp.EqViewModel
 import com.wellmosphere.freedsp.Mode
 import com.wellmosphere.freedsp.UiState
+import com.wellmosphere.freedsp.store.CurveStore
 import com.wellmosphere.freedsp.eq.FilterType
 import com.wellmosphere.freedsp.eq.Limits
 import com.wellmosphere.freedsp.ui.components.BandPicker
@@ -105,7 +106,7 @@ import kotlin.math.pow
 private data class Naming(val from: String?)
 
 @Composable
-fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImport: () -> Unit, onExport: () -> Unit) {
+fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImport: (CurveStore.Kind?) -> Unit, onExport: () -> Unit) {
     var confirmWrite by rememberSaveable { mutableStateOf(false) }
     var naming by remember { mutableStateOf<Naming?>(null) }
     var deleting by remember { mutableStateOf<String?>(null) }
@@ -124,7 +125,7 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Header(state, onAllowAccess, Modifier.padding(horizontal = 20.dp)) { close ->
-                DropdownMenuItem(text = { Text("Open EQ file") }, onClick = { close(); onImport() })
+                DropdownMenuItem(text = { Text("Open EQ file") }, onClick = { close(); onImport(null) })
                 DropdownMenuItem(text = { Text("Paste EQ text") }, onClick = { close(); clipboard.getText()?.text?.let { vm.import(it, null) } ?: vm.say("Copy some parametric EQ text first.", true) })
                 DropdownMenuItem(text = { Text("Read the cable again") }, enabled = state.cable == Cable.READY && state.busy == null, onClick = { close(); vm.read() })
             }
@@ -139,7 +140,8 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
                 Panel {
                     ResponseGraph(state.eq, state.jump, state.selected, pick, vm::updateBand,
                         Modifier.fillMaxWidth().height(230.dp), interactive = state.mode == Mode.PARAMETRIC,
-                        picked = picked && state.mode == Mode.PARAMETRIC, onRelease = { picked = false })
+                        picked = picked && state.mode == Mode.PARAMETRIC, onRelease = { picked = false },
+                        overlay = state.measurement?.let { m -> state.target?.let { t -> m to t } })
                     Spacer(Modifier.height(8.dp))
                     if (state.mode == Mode.PARAMETRIC) {
                         GestureHint(
@@ -174,6 +176,7 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
                 Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
                     TextButton(onClick = vm::flatten) { Text("Reset to flat", color = Palette.Muted) }
                 }
+                FitPanel(state, vm, onImport = { onImport(it) })
             }
             Spacer(Modifier.height(104.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))

@@ -30,6 +30,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wellmosphere.freedsp.eq.Band
+import com.wellmosphere.freedsp.eq.Curve
 import com.wellmosphere.freedsp.eq.Eq
 import com.wellmosphere.freedsp.eq.Limits
 import com.wellmosphere.freedsp.eq.Response
@@ -59,6 +60,8 @@ fun ResponseGraph(
     interactive: Boolean = true,
     picked: Boolean = false,
     onRelease: () -> Unit = {},
+    /** Your IEM's measurement and a target: drawn as "your IEM", "with this EQ" and the dashed target. */
+    overlay: Pair<Curve, Curve>? = null,
 ) {
     val shown = rememberEqTransition(eq, jump)
     val latest by rememberUpdatedState(eq)
@@ -70,6 +73,8 @@ fun ResponseGraph(
     val reveal = remember { Animatable(0f) }
     LaunchedEffect(Unit) { reveal.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) }
     val bubble by animateFloatAsState(if (picked) 1f else 0f, tween(180), label = "bubble")
+    val fr = remember(overlay) { overlay?.let { (m, t) -> CURVE_HZ.map(m::at).toDoubleArray() to CURVE_HZ.map(t::at).toDoubleArray() } }
+    val frAlpha by animateFloatAsState(if (overlay != null) 1f else 0f, tween(400), label = "fr")
 
     Canvas(
         if (!interactive) modifier else modifier
@@ -95,7 +100,10 @@ fun ResponseGraph(
     ) {
         outOfRange()
         grid(text)
-        clipRect(right = size.width * reveal.value) { curve(shown) }
+        clipRect(right = size.width * reveal.value) {
+            if (fr != null && frAlpha > 0f) frLines(fr.first, fr.second, shown, frAlpha)
+            curve(shown, faint = fr != null)
+        }
         preamp(shown.preampDb)
         shown.bands.forEachIndexed { i, b ->
             if (interactive) node(i, b, isSelected = i == selected, emphasis = (1f - kotlin.math.abs(pulse - i)).coerceIn(0f, 1f),
@@ -150,7 +158,23 @@ private fun DrawScope.grid(text: androidx.compose.ui.text.TextMeasurer) {
     }
 }
 
-private fun DrawScope.curve(eq: Eq) {
+/** Target (dashed), your IEM (faint) and your IEM with this EQ (bright), all level-matched at 1 kHz. */
+private fun DrawScope.frLines(meas: DoubleArray, target: DoubleArray, eq: Eq, alpha: Float) {
+    val bands = Response.curve(eq, CURVE_HZ)
+    val ref = Response.curve(eq, doubleArrayOf(1000.0))[0]
+    fun line(values: (Int) -> Double): Path = Path().apply {
+        for (i in CURVE_HZ.indices) {
+            val x = i / (CURVE_HZ.size - 1f) * size.width
+            val y = yOf(values(i).coerceIn(-RANGE_DB - 2, RANGE_DB + 2), size.height)
+            if (i == 0) moveTo(x, y) else lineTo(x, y)
+        }
+    }
+    drawPath(line { target[it] }, Palette.Warm.copy(alpha = 0.9f * alpha), style = Stroke(2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f))))
+    drawPath(line { meas[it] }, Palette.Muted.copy(alpha = 0.55f * alpha), style = Stroke(1.5.dp.toPx()))
+    drawPath(line { meas[it] + bands[it] - ref }, Palette.Text.copy(alpha = alpha), style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
+}
+
+private fun DrawScope.curve(eq: Eq, faint: Boolean = false) {
     val db = Response.curve(eq, CURVE_HZ)
     val line = Path(); val fill = Path()
     val zero = yOf(0.0, size.height)
@@ -160,9 +184,10 @@ private fun DrawScope.curve(eq: Eq) {
         if (i == 0) { line.moveTo(x, y); fill.moveTo(x, zero); fill.lineTo(x, y) } else { line.lineTo(x, y); fill.lineTo(x, y) }
     }
     fill.lineTo(size.width, zero); fill.close()
-    drawPath(fill, Brush.verticalGradient(listOf(Palette.Signal.copy(alpha = 0.22f), Palette.Signal.copy(alpha = 0.02f), Palette.Signal.copy(alpha = 0.22f))))
-    drawPath(line, Palette.Signal.copy(alpha = 0.18f), style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round))
-    drawPath(line, Palette.Signal, style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round))
+    val a = if (faint) 0.45f else 1f
+    drawPath(fill, Brush.verticalGradient(listOf(Palette.Signal.copy(alpha = 0.22f * a), Palette.Signal.copy(alpha = 0.02f), Palette.Signal.copy(alpha = 0.22f * a))))
+    if (!faint) drawPath(line, Palette.Signal.copy(alpha = 0.18f), style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round))
+    drawPath(line, Palette.Signal.copy(alpha = a), style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round))
 }
 
 private fun DrawScope.preamp(db: Double) {

@@ -9,7 +9,18 @@ The Gen-1 wire protocol (reads and writes), the RBJ biquad maths, the 2^22 coeff
 - Copyright (c) 2026 EffectiveEquivalent
 - License: MIT; complete license in `docs/FreeDSP-Studio-LICENSE.txt` and bundled in the APK assets.
 
-Upstream's other device families, firmware/preset handling, auto-fit and treble test are not included.
+Upstream's other device families, firmware/preset handling, and treble listening test are not included; auto-fit is ported in its range mode only.
+
+## AutoEq
+
+Auto-fit follows AutoEq's approach as FreeDSP Studio ports it (matching-pursuit start, MSE loss with a sharpness penalty, per-parameter refinement). The bundled target curves (`assets/targets`: Harman in-ear 2019, Harman in-ear 2019 without bass, AutoEq in-ear) are AutoEq's files, unchanged.
+
+- Project: https://github.com/jaakkopasanen/AutoEq
+- Revision: `7ae0f56d53074872b028649617a22bbb4232feb7`
+- Copyright (c) 2018-2022 Jaakko Pasanen
+- License: MIT; complete license in `docs/AutoEq-LICENSE.txt` and bundled in the APK assets.
+
+IEM measurements are not bundled: they belong to the people who measured them, and users import their own.
 
 ## Kotlin
 

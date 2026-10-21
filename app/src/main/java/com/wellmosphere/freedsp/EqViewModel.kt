@@ -10,13 +10,17 @@ import com.wellmosphere.freedsp.cable.CableLink
 import com.wellmosphere.freedsp.cable.CableOps
 import com.wellmosphere.freedsp.cable.Gen1
 import com.wellmosphere.freedsp.cable.HidTakeover
+import com.wellmosphere.freedsp.eq.AutoFit
 import com.wellmosphere.freedsp.eq.Band
+import com.wellmosphere.freedsp.eq.Curve
 import com.wellmosphere.freedsp.eq.Eq
 import com.wellmosphere.freedsp.eq.Preset
 import com.wellmosphere.freedsp.eq.Response
 import com.wellmosphere.freedsp.eq.SquigText
 import com.wellmosphere.freedsp.store.Profile
+import com.wellmosphere.freedsp.store.CurveStore
 import com.wellmosphere.freedsp.store.ProfileStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
@@ -47,6 +51,12 @@ data class UiState(
     val firstWrite: Boolean = true,
     /** Bumped when the whole EQ is replaced (profile switch, import), so the graph can animate the change. */
     val jump: Int = 0,
+    val measurements: List<Curve> = emptyList(),
+    val targets: List<Curve> = emptyList(),
+    /** Your IEM's measurement and the target to aim for; both are needed to compare and auto-fit. */
+    val measurement: Curve? = null,
+    val target: Curve? = null,
+    val fitting: Boolean = false,
 ) {
     val eq: Eq get() = profiles.firstOrNull { it.name == active }?.eq ?: Eq.FLAT
 
@@ -72,6 +82,7 @@ data class UiState(
 class EqViewModel(app: Application) : AndroidViewModel(app) {
     private val link = CableLink(app)
     private val store = ProfileStore(app.filesDir)
+    private val curves = CurveStore(app)
     private val usb = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
     private var saveJob: Job? = null
     /** The cable restarts itself to save a write; set from the USB thread, read on main. */
@@ -91,6 +102,7 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
             lastWritten = store.lastWritten,
             firstWrite = store.verifiedWrites == 0,
         )
+        loadCurves()
     }
 
     val device: UsbDevice? get() = link.find()
@@ -237,6 +249,53 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
     }
     private fun flushSave() {
         if (saveJob?.isActive == true) { saveJob?.cancel(); store.put(_state.value.active, _state.value.eq) }
+    }
+
+    // ---- measurements, targets and auto-fit ----
+
+    private fun loadCurves() {
+        val ms = curves.list(CurveStore.Kind.MEASUREMENT)
+        val ts = curves.list(CurveStore.Kind.TARGET)
+        _state.update { s ->
+            s.copy(measurements = ms, targets = ts,
+                measurement = ms.firstOrNull { it.name == curves.selected(CurveStore.Kind.MEASUREMENT) } ?: ms.firstOrNull(),
+                target = ts.firstOrNull { it.name == curves.selected(CurveStore.Kind.TARGET) } ?: ts.firstOrNull())
+        }
+    }
+    fun pickCurve(kind: CurveStore.Kind, name: String) { curves.select(kind, name); loadCurves() }
+    fun importCurve(kind: CurveStore.Kind, text: String, fileName: String?) {
+        // squig.link names channels "Name [L].txt"; keep just the name.
+        val name = fileName?.substringBeforeLast('.')?.replace(Regex("""\s*\[[^\]]*]$"""), "") ?: "Imported"
+        runCatching { curves.add(kind, name, text) }.fold(
+            onSuccess = { c -> curves.select(kind, c.name); loadCurves(); say("Added \"${c.name}\".") },
+            onFailure = { say(it.message ?: "That file isn't a frequency response", true) },
+        )
+    }
+    fun deleteCurve(kind: CurveStore.Kind, name: String) {
+        curves.delete(kind, name)
+        if (curves.selected(kind) == name) curves.select(kind, null)
+        loadCurves()
+    }
+    fun isBuiltInTarget(name: String) = curves.isBuiltIn(name)
+
+    /** Fits the bands that bring your IEM closest to the target, as a new profile so nothing is overwritten. */
+    fun autoFit() {
+        val s = _state.value
+        val m = s.measurement ?: return say("Add your IEM's measurement first.", true)
+        val t = s.target ?: return say("Pick a target first.", true)
+        if (s.fitting) return
+        _state.update { it.copy(fitting = true) }
+        viewModelScope.launch {
+            val (eq, before, after) = withContext(Dispatchers.Default) {
+                val eq = AutoFit.fit(m, t)
+                Triple(eq, AutoFit.error(m, t, Eq.FLAT), AutoFit.error(m, t, eq))
+            }
+            addProfile(unique("${m.name} · ${t.name}".take(32).trim()), eq)
+            _state.update { it.copy(fitting = false) }
+            val used = eq.bands.count { it.gainDb != 0.0 }
+            say(String.format(java.util.Locale.US, "Fitted with %d band%s. It was %.1f dB off the target, now %.1f dB.",
+                used, if (used == 1) "" else "s", before, after))
+        }
     }
 
     // ---- messages ----
