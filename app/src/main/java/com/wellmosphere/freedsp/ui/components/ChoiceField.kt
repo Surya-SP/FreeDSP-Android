@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.wellmosphere.freedsp.ui.theme.Palette
 
@@ -65,7 +66,7 @@ fun ChoiceField(
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             options.forEach { name ->
                 DropdownMenuItem(
-                    text = { Text(name, maxLines = 1) },
+                    text = { Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                     leadingIcon = { Box(Modifier.size(20.dp)) { if (name == current) Icon(Icons.Default.Check, null, tint = Palette.Signal) } },
                     trailingIcon = if (removable(name)) ({
                         IconButton(onClick = { open = false; onRemove(name) }) { Icon(Icons.Default.Close, contentDescription = "Remove $name", tint = Palette.Muted) }

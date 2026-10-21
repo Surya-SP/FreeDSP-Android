@@ -13,7 +13,7 @@ Upstream's other device families, firmware/preset handling, and treble listening
 
 ## AutoEq
 
-Auto-fit follows AutoEq's approach as FreeDSP Studio ports it (matching-pursuit start, MSE loss with a sharpness penalty, per-parameter refinement). The bundled target curves (`assets/targets`: Harman in-ear 2019, Harman in-ear 2019 without bass, AutoEq in-ear) are AutoEq's files, unchanged.
+Auto-fit follows AutoEq's approach as FreeDSP Studio ports it (matching-pursuit start, MSE loss with a sharpness penalty, per-parameter refinement). The bundled target curves (`assets/targets`: Harman in-ear 2019, Harman in-ear 2019 without bass, Harman in-ear 2017-2, AutoEq in-ear, Diffuse field ISO 11904-1, oratory1990 in-ear) are AutoEq's files, unchanged.
 
 - Project: https://github.com/jaakkopasanen/AutoEq
 - Revision: `7ae0f56d53074872b028649617a22bbb4232feb7`
