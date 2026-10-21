@@ -51,7 +51,7 @@ fun FitPanel(state: UiState, vm: EqViewModel, onImport: (Kind) -> Unit) = Panel 
         ChoiceField(
             "Target", state.target?.name, "Pick a target", state.targets.map { it.name }, "Import a target…",
             onPick = { vm.pickCurve(Kind.TARGET, it) }, onImport = { onImport(Kind.TARGET) },
-            onRemove = { vm.deleteCurve(Kind.TARGET, it) }, removable = { !vm.isBuiltInTarget(it) },
+            onRemove = { vm.deleteCurve(Kind.TARGET, it) }, removable = { !vm.isBuiltInTarget(it) }, describe = vm::aboutTarget,
         )
     }
     AnimatedVisibility(state.measurement != null && state.target != null) {

@@ -34,7 +34,7 @@ import com.wellmosphere.freedsp.ui.theme.Palette
 
 /**
  * A labelled pick-one field with a dropdown: the options (current one ticked), an import action at the end,
- * and a remove button on options that [removable] allows.
+ * a remove button on options that [removable] allows, and a short line under options [describe] knows.
  */
 @Composable
 fun ChoiceField(
@@ -48,6 +48,7 @@ fun ChoiceField(
     onRemove: (String) -> Unit,
     removable: (String) -> Boolean,
     modifier: Modifier = Modifier,
+    describe: (String) -> String? = { null },
 ) {
     var open by remember { mutableStateOf(false) }
     Box(modifier.fillMaxWidth()) {
@@ -66,7 +67,12 @@ fun ChoiceField(
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             options.forEach { name ->
                 DropdownMenuItem(
-                    text = { Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    text = {
+                        Column(Modifier.padding(vertical = 6.dp)) {
+                            Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            describe(name)?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = Palette.Muted, modifier = Modifier.padding(top = 2.dp)) }
+                        }
+                    },
                     leadingIcon = { Box(Modifier.size(20.dp)) { if (name == current) Icon(Icons.Default.Check, null, tint = Palette.Signal) } },
                     trailingIcon = if (removable(name)) ({
                         IconButton(onClick = { open = false; onRemove(name) }) { Icon(Icons.Default.Close, contentDescription = "Remove $name", tint = Palette.Muted) }

@@ -25,6 +25,8 @@ class CurveStore(private val context: Context) {
     }
 
     fun isBuiltIn(name: String) = builtInTargets.any { it.name == name }
+    /** A line on how a built-in target sounds; imported curves have none. */
+    fun about(name: String): String? = ABOUT[name]
 
     /** Validates by parsing first; a file with the same name is replaced. */
     fun add(kind: Kind, name: String, text: String): Curve {
@@ -35,6 +37,17 @@ class CurveStore(private val context: Context) {
     }
 
     fun delete(kind: Kind, name: String) { File(dir(kind), "$name.txt").delete() }
+
+    private companion object {
+        val ABOUT = mapOf(
+            "Harman in-ear 2019" to "The most popular target. Warm bass, clear vocals.",
+            "Harman in-ear 2019 without bass" to "Harman 2019 with flat bass, for less low end.",
+            "Harman in-ear 2017-2" to "Earlier Harman. More bass and upper-mid bite.",
+            "AutoEq in-ear" to "Gentle bass and a smoother, easier treble.",
+            "Diffuse field ISO 11904-1" to "Classic neutral. Flat bass, open and revealing.",
+            "oratory1990 in-ear" to "Strong bass shelf, calmer upper mids than Harman.",
+        )
+    }
 
     fun selected(kind: Kind): String? = prefs.getString(kind.name, null)
     fun select(kind: Kind, name: String?) = prefs.edit().putString(kind.name, name).apply()

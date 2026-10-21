@@ -321,6 +321,7 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
         loadCurves()
     }
     fun isBuiltInTarget(name: String) = curves.isBuiltIn(name)
+    fun aboutTarget(name: String) = curves.about(name)
 
     /** Fits the bands that bring your IEM closest to the target and keeps them as "<IEM> fit", with Undo. */
     fun autoFit() {
