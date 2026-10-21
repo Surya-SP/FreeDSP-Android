@@ -184,7 +184,7 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
         Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            NoticeBar(state.notice, vm::dismissNotice)
+            NoticeBar(state.notice, vm::dismissNotice, vm::undo)
             WriteBar(state, onAllowAccess = onAllowAccess, onWrite = { confirmWrite = true })
         }
         // Content scrolls under the transparent status bar; fade it out behind the clock and icons.
@@ -192,14 +192,14 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
             Brush.verticalGradient(listOf(Palette.Ink, Palette.Ink.copy(alpha = 0.85f)))))
         AnimatedVisibility(presetsOpen, enter = slideInVertically { it / 4 } + fadeIn(), exit = slideOutVertically { it / 4 } + fadeOut()) {
             PresetsPage(
-                owned = { p -> state.profiles.any { it.eq.soundsLike(p.eq) } },
+                into = state.active, current = { p -> state.eq.soundsLike(p.eq) },
                 onPick = { vm.applyPreset(it); presetsOpen = false }, onClose = { presetsOpen = false },
             )
         }
     }
 
     naming?.let { n ->
-        NameDialog(if (n.from == null) "New profile" else "Rename profile", n.from ?: "", if (n.from == null) "Create" else "Rename") { name ->
+        NameDialog(if (n.from == null) "Keep this sound as…" else "Rename profile", n.from ?: "", if (n.from == null) "Create" else "Rename") { name ->
             naming = null
             if (name != null) if (n.from == null) vm.newProfile(name) else vm.rename(n.from, name)
         }

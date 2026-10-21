@@ -42,7 +42,7 @@ class ProfileActions(
 
 /**
  * Profiles as chips: tap to switch, press and hold for more. A dot marks the one the cable is playing.
- * The last chip makes a new profile.
+ * The last chip keeps the current sound as a new profile.
  */
 @Composable
 fun ProfileBar(
@@ -93,7 +93,7 @@ fun ProfileBar(
         }
         item(key = "+new") {
             Text(
-                "+  New", style = MaterialTheme.typography.labelLarge, color = Palette.Signal,
+                "+  Keep as new", style = MaterialTheme.typography.labelLarge, color = Palette.Signal,
                 modifier = Modifier.clip(RoundedCornerShape(50)).border(1.dp, Palette.Signal.copy(alpha = 0.4f), RoundedCornerShape(50))
                     .springClick(onClick = onNew).padding(horizontal = 16.dp, vertical = 10.dp),
             )

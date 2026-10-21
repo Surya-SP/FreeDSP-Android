@@ -15,6 +15,7 @@ import com.wellmosphere.freedsp.eq.Band
 import com.wellmosphere.freedsp.eq.Curve
 import com.wellmosphere.freedsp.eq.Eq
 import com.wellmosphere.freedsp.eq.Preset
+import com.wellmosphere.freedsp.eq.Presets
 import com.wellmosphere.freedsp.eq.Response
 import com.wellmosphere.freedsp.eq.SquigText
 import com.wellmosphere.freedsp.store.Profile
@@ -34,7 +35,8 @@ import java.util.concurrent.Executors
 enum class Cable { ABSENT, NEEDS_ACCESS, READY }
 enum class Mode { SIMPLE, PARAMETRIC }
 
-data class Notice(val text: String, val problem: Boolean = false, val id: Long = System.nanoTime())
+/** [undo] adds an Undo button; the notice then stays up a little longer. */
+data class Notice(val text: String, val problem: Boolean = false, val undo: Boolean = false, val id: Long = System.nanoTime())
 
 data class UiState(
     val profiles: List<Profile> = emptyList(),
@@ -185,7 +187,7 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
     fun select(index: Int) = _state.update { it.copy(selected = index) }
     fun updateBand(index: Int, band: Band) { _state.update { it.copy(selected = index) }; edit { it.withBand(index, band) } }
     fun setGain(index: Int, gainDb: Double) = edit { it.withBand(index, it.bands[index].copy(gainDb = gainDb)) }
-    fun flatten() { edit { it.flattened() }; _state.update { it.copy(jump = it.jump + 1) } }
+    fun flatten() = load(_state.value.eq.flattened(), null, "Reset to flat.")
 
     private fun edit(change: (Eq) -> Eq) = replaceActive(change(_state.value.eq).withSafePreamp(), animate = false)
 
@@ -204,11 +206,40 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
         store.setActive(name)
         _state.update { it.copy(active = name, jump = it.jump + 1) }
     }
-    fun newProfile(name: String) = addProfile(unique(name.trim().ifEmpty { "New EQ" }), Eq.FLAT)
-    /** Your copy of a preset: reuse the one that still sounds like it, otherwise start a fresh copy. */
-    fun applyPreset(p: Preset) {
-        val existing = _state.value.profiles.firstOrNull { (it.name == p.name || it.name.startsWith("${p.name} ")) && it.eq.soundsLike(p.eq) }
-        if (existing != null) switchTo(existing.name) else addProfile(unique(p.name), p.eq)
+    /** Keeps what you're hearing under a new name; Reset to flat is one tap away if you want a blank one. */
+    fun newProfile(name: String) = addProfile(unique(name.trim().ifEmpty { "New EQ" }), _state.value.eq)
+    /** Trying a preset loads it into the profile you're on (with Undo); "+ New" or Duplicate keep extra ones. */
+    fun applyPreset(p: Preset) = load(p.eq, p.name, "Loaded ${p.name}.")
+
+    /**
+     * Replaces the active profile's sound in one undoable step. A profile still named after a preset or a fit
+     * takes [source] as its new name, so its chip says what it plays; names you chose are kept.
+     */
+    private fun load(eq: Eq, source: String?, message: String) {
+        flushSave()
+        val s = _state.value
+        val before = Profile(s.active, s.eq)
+        val name = source?.takeIf { isAutoName(s.active) && it != s.active }?.let { unique(it) } ?: s.active
+        if (name != s.active) { store.rename(s.active, name); store.setActive(name) }
+        store.put(name, eq.withSafePreamp())
+        _state.update { it.copy(profiles = store.profiles, active = name, jump = it.jump + 1) }
+        undo = before to name
+        _state.update { it.copy(notice = Notice(message, undo = true)) }
+    }
+    private fun isAutoName(name: String) =
+        " · " in name || Regex(""".+ fit( \d+)?""").matches(name) || Presets.ALL.any { name == it.name || Regex("""${Regex.escape(it.name)} \d+""").matches(name) }
+
+    /** What the last load replaced, and the profile it went into. */
+    private var undo: Pair<Profile, String>? = null
+    fun undo() {
+        val (before, now) = undo ?: return
+        undo = null
+        flushSave()
+        if (_state.value.profiles.none { it.name == now }) return
+        if (before.name != now) store.rename(now, before.name)
+        store.put(before.name, before.eq)
+        if (_state.value.active == now) store.setActive(before.name)
+        _state.update { s -> s.copy(profiles = store.profiles, active = if (s.active == now) before.name else s.active, jump = s.jump + 1, notice = null) }
     }
     fun duplicate(name: String) = _state.value.profiles.firstOrNull { it.name == name }?.let { addProfile(unique("${it.name} copy"), it.eq) }
     fun rename(from: String, to: String) {
@@ -279,7 +310,7 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun isBuiltInTarget(name: String) = curves.isBuiltIn(name)
 
-    /** Fits the bands that bring your IEM closest to the target, as a new profile so nothing is overwritten. */
+    /** Fits the bands that bring your IEM closest to the target, into the profile you're on (with Undo). */
     fun autoFit() {
         val s = _state.value
         val m = s.measurement ?: return say("Add your IEM's measurement first.", true)
@@ -291,11 +322,10 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
                 val eq = AutoFit.fit(m, t)
                 Triple(eq, AutoFit.error(m, t, Eq.FLAT), AutoFit.error(m, t, eq))
             }
-            addProfile(unique("${m.name} · ${t.name}".take(32).trim()), eq)
             _state.update { it.copy(fitting = false) }
             val used = eq.bands.count { it.gainDb != 0.0 }
-            say(String.format(java.util.Locale.US, "Fitted with %d band%s. It was %.1f dB off the target, now %.1f dB.",
-                used, if (used == 1) "" else "s", before, after))
+            load(eq, "${m.name.replace(Regex("""\s*\([^)]*\)"""), "").take(28).trim()} fit", String.format(java.util.Locale.US,
+                "Fitted with %d band%s: %.1f dB off the target, now %.1f dB.", used, if (used == 1) "" else "s", before, after))
         }
     }
 

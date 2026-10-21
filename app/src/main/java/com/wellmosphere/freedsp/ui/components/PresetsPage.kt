@@ -54,11 +54,12 @@ private val MINI_HZ = Response.logSpaced(64)
 
 /**
  * Built-in presets as a full-screen page: it scrolls on its own and closes only with ✕ or Back, so a long
- * scroll can never be mistaken for a dismiss. [owned] marks presets you already have as a profile.
+ * scroll can never be mistaken for a dismiss. A preset loads [into] the profile you're on; [current] marks the one it
+ * already sounds like.
  * Show it inside an AnimatedVisibility for the slide-up.
  */
 @Composable
-fun PresetsPage(owned: (Preset) -> Boolean, onPick: (Preset) -> Unit, onClose: () -> Unit) {
+fun PresetsPage(into: String, current: (Preset) -> Boolean, onPick: (Preset) -> Unit, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
     // Cards cascade in once per opening; scrolling them back into view doesn't replay it.
     val entered = remember { mutableSetOf<String>() }
@@ -76,28 +77,28 @@ fun PresetsPage(owned: (Preset) -> Boolean, onPick: (Preset) -> Unit, onClose: (
                     Text("Presets", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
                     IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = "Close presets") }
                 }
-                Text("Tap one to make it yours. Every preset stays inside what the cable can play, and none of them distort.",
+                Text("Tap one to load it into \u201C$into\u201D; you can undo it. Every preset stays inside what the cable can play, and none of them distort.",
                     style = MaterialTheme.typography.bodyMedium, color = Palette.Muted, modifier = Modifier.padding(top = 4.dp, end = 8.dp))
             }
         }
         itemsIndexed(Presets.ALL, key = { _, p -> p.name }) { i, p ->
-            PresetCard(p, owned(p), delayMs = if (entered.add(p.name)) 60L + i * 28L else null) { onPick(p) }
+            PresetCard(p, current(p), delayMs = if (entered.add(p.name)) 60L + i * 28L else null) { onPick(p) }
         }
     }
 }
 
 @Composable
-private fun PresetCard(p: Preset, owned: Boolean, delayMs: Long?, onClick: () -> Unit) {
+private fun PresetCard(p: Preset, current: Boolean, delayMs: Long?, onClick: () -> Unit) {
     val enter = remember { Animatable(if (delayMs == null) 1f else 0f) }
     LaunchedEffect(Unit) { if (delayMs != null) { delay(delayMs); enter.animateTo(1f, tween(380, easing = FastOutSlowInEasing)) } }
     Column(
         Modifier.graphicsLayer { alpha = enter.value; translationY = (1 - enter.value) * 40f }
             .clip(RoundedCornerShape(20.dp)).background(Palette.Panel)
-            .border(1.dp, if (owned) Palette.Signal.copy(alpha = 0.5f) else Palette.Line, RoundedCornerShape(20.dp))
+            .border(1.dp, if (current) Palette.Signal.copy(alpha = 0.5f) else Palette.Line, RoundedCornerShape(20.dp))
             .springClick(onClick = onClick).padding(14.dp),
     ) {
         MiniCurve(p.eq, Modifier.fillMaxWidth().height(44.dp))
-        Text(p.name + if (owned) "  ✓" else "", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 10.dp))
+        Text(p.name + if (current) "  ✓" else "", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 10.dp))
         Text(p.blurb, style = MaterialTheme.typography.labelMedium, color = Palette.Muted, maxLines = 2, minLines = 2, modifier = Modifier.padding(top = 2.dp))
     }
 }
