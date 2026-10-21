@@ -54,11 +54,11 @@ private val MINI_HZ = Response.logSpaced(64)
 
 /**
  * Built-in presets as a full-screen page: it scrolls on its own and closes only with ✕ or Back, so a long
- * scroll can never be mistaken for a dismiss. [current] marks the applied preset.
+ * scroll can never be mistaken for a dismiss. [current] marks the applied preset, [onCable] the one the cable plays.
  * Show it inside an AnimatedVisibility for the slide-up.
  */
 @Composable
-fun PresetsPage(current: (Preset) -> Boolean, onPick: (Preset) -> Unit, onClose: () -> Unit) {
+fun PresetsPage(current: (Preset) -> Boolean, onCable: String?, onPick: (Preset) -> Unit, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
     // Cards cascade in once per opening; scrolling them back into view doesn't replay it.
     val entered = remember { mutableSetOf<String>() }
@@ -81,13 +81,13 @@ fun PresetsPage(current: (Preset) -> Boolean, onPick: (Preset) -> Unit, onClose:
             }
         }
         itemsIndexed(Presets.ALL, key = { _, p -> p.name }) { i, p ->
-            PresetCard(p, current(p), delayMs = if (entered.add(p.name)) 60L + i * 28L else null) { onPick(p) }
+            PresetCard(p, current(p), p.name == onCable, delayMs = if (entered.add(p.name)) 60L + i * 28L else null) { onPick(p) }
         }
     }
 }
 
 @Composable
-private fun PresetCard(p: Preset, current: Boolean, delayMs: Long?, onClick: () -> Unit) {
+private fun PresetCard(p: Preset, current: Boolean, playing: Boolean, delayMs: Long?, onClick: () -> Unit) {
     val enter = remember { Animatable(if (delayMs == null) 1f else 0f) }
     LaunchedEffect(Unit) { if (delayMs != null) { delay(delayMs); enter.animateTo(1f, tween(380, easing = FastOutSlowInEasing)) } }
     Column(
@@ -98,7 +98,8 @@ private fun PresetCard(p: Preset, current: Boolean, delayMs: Long?, onClick: () 
     ) {
         MiniCurve(p.eq, Modifier.fillMaxWidth().height(44.dp))
         Text(p.name + if (current) "  ✓" else "", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 10.dp))
-        Text(p.blurb, style = MaterialTheme.typography.labelMedium, color = Palette.Muted, maxLines = 2, minLines = 2, modifier = Modifier.padding(top = 2.dp))
+        Text(if (playing) "On your cable" else p.blurb, style = MaterialTheme.typography.labelMedium, color = if (playing) Palette.Signal else Palette.Muted,
+            maxLines = 2, minLines = 2, modifier = Modifier.padding(top = 2.dp))
     }
 }
 

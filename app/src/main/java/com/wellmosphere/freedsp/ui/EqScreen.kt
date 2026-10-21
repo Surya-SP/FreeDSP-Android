@@ -191,7 +191,7 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
             Brush.verticalGradient(listOf(Palette.Ink, Palette.Ink.copy(alpha = 0.85f)))))
         AnimatedVisibility(presetsOpen, enter = slideInVertically { it / 4 } + fadeIn(), exit = slideOutVertically { it / 4 } + fadeOut()) {
             PresetsPage(
-                current = { it.name == state.preset },
+                current = { it.name == state.preset }, onCable = state.playing,
                 onPick = { vm.applyPreset(it); presetsOpen = false }, onClose = { presetsOpen = false },
             )
         }
