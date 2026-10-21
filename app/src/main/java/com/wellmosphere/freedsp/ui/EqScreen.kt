@@ -100,6 +100,7 @@ import com.wellmosphere.freedsp.ui.components.hz
 import com.wellmosphere.freedsp.ui.components.parseNumber
 import com.wellmosphere.freedsp.ui.theme.Palette
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.pow
@@ -333,6 +334,10 @@ private fun WriteBar(state: UiState, onAllowAccess: () -> Unit, onWrite: () -> U
         state.activeOnCable -> "\"${state.title}\" is on your cable  ✓" to null
         else -> "Write \"${state.title}\" to cable" to onWrite
     }
+    // Nothing to write: say so for a moment, then get out of the way until something changes.
+    val upToDate = state.busy == null && state.cable == Cable.READY && !state.restorePending && !state.clips && state.activeOnCable
+    var shown by remember { mutableStateOf(true) }
+    LaunchedEffect(upToDate, state.title) { shown = true; if (upToDate) { delay(2500); shown = false } }
     // A soft pop and a buzz when a write lands, never on launch.
     val haptics = LocalHapticFeedback.current
     val pop = remember { Animatable(1f) }
@@ -350,15 +355,17 @@ private fun WriteBar(state: UiState, onAllowAccess: () -> Unit, onWrite: () -> U
         else -> SolidColor(Palette.Raised)
     }
     val text = if (action != null) Palette.Ink else if (state.activeOnCable) Palette.Signal else Palette.Muted
-    Row(
-        Modifier.fillMaxWidth().height(58.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }
-            .clip(RoundedCornerShape(20.dp)).background(fill)
-            .then(if (action != null) Modifier.springClick(onClick = action) else Modifier),
-        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (state.busy != null) CircularProgressIndicator(Modifier.size(18.dp).padding(end = 0.dp), strokeWidth = 2.dp, color = Palette.Text)
-        AnimatedContent(label, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "write") {
-            Text(it, style = MaterialTheme.typography.labelLarge, color = text, maxLines = 1, modifier = Modifier.padding(start = if (state.busy != null) 10.dp else 0.dp))
+    AnimatedVisibility(shown, enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
+        Row(
+            Modifier.fillMaxWidth().height(58.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }
+                .clip(RoundedCornerShape(20.dp)).background(fill)
+                .then(if (action != null) Modifier.springClick(onClick = action) else Modifier),
+            horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (state.busy != null) CircularProgressIndicator(Modifier.size(18.dp).padding(end = 0.dp), strokeWidth = 2.dp, color = Palette.Text)
+            AnimatedContent(label, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "write") {
+                Text(it, style = MaterialTheme.typography.labelLarge, color = text, maxLines = 1, modifier = Modifier.padding(start = if (state.busy != null) 10.dp else 0.dp))
+            }
         }
     }
 }

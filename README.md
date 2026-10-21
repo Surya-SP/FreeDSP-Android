@@ -45,9 +45,40 @@ The FreeDSP is a USB-C cable with a small DSP inside: it keeps a 9-band EQ in it
 
 Developed and used day to day on Android 15. Reports from other phones are very welcome.
 
-## Install
+## Download
 
-There's no Play Store release yet, so build it yourself:
+Grab the latest `FreeDSP-Android-x.y.z.apk` from [Releases](https://github.com/Surya-SP/FreeDSP-Android/releases) and open it on your phone. Android will ask you to allow installs from your browser or file manager the first time.
+
+Release APKs are signed with this certificate, so you can check you have the real thing:
+
+```
+SHA-256: 72:FF:4F:0D:27:DB:55:D2:66:5F:3F:30:89:2C:D3:47:7E:9C:EB:3A:43:AE:57:6C:85:21:88:39:DA:7B:1B:16
+```
+
+```sh
+apksigner verify --print-certs FreeDSP-Android-0.6.0.apk
+```
+
+## Build it yourself
+
+You don't need to trust a download: the whole app builds from this repo in a few minutes.
+
+### With Android Studio (easiest)
+
+1. Install [Android Studio](https://developer.android.com/studio) (Ladybug or newer).
+2. **File › Open** and pick the `FreeDSP-Android` folder. Let Gradle sync; if it asks to install NDK `27.0.12077973` or CMake `3.22.1`, say yes.
+3. On your phone, turn on **Developer options › USB debugging** (or Wireless debugging) and connect it.
+4. Pick your phone in the device menu and press **Run**.
+
+### From the command line
+
+You need JDK 17 and the Android SDK with platform 35, build-tools, NDK `27.0.12077973` and CMake `3.22.1`:
+
+```sh
+sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973" "cmake;3.22.1"
+```
+
+Then:
 
 ```sh
 git clone https://github.com/Surya-SP/FreeDSP-Android.git
@@ -56,7 +87,22 @@ cd FreeDSP-Android
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-You need JDK 17 and the Android SDK (with NDK 27.0.12077973 for the small native USB helper). Android Studio sets both up for you.
+No `adb`? Copy `app-debug.apk` to your phone and open it there.
+
+### Your own release build (optional)
+
+A release build is smaller and faster than a debug one. Make a key once, keep it safe, and point the build at it:
+
+```sh
+keytool -genkeypair -keystore ~/freedsp-release.keystore -alias freedsp -keyalg RSA -keysize 4096 -validity 10000
+
+export FREEDSP_RELEASE_KEYSTORE=~/freedsp-release.keystore
+export FREEDSP_RELEASE_ALIAS=freedsp
+export FREEDSP_RELEASE_PASSWORD='the password you chose'
+./gradlew assembleRelease          # app/build/outputs/apk/release/app-release.apk
+```
+
+Without those variables `assembleRelease` still works but gives an unsigned APK. Android only installs an update over an app signed with the same key, so if you switch between your build and the official one, uninstall first (export your profiles before you do).
 
 ## Using it
 
@@ -86,7 +132,7 @@ The FreeDSP shows up as a USB audio device plus a HID interface for its buttons 
 
 No internet permission, no analytics, no accounts and no microphone. Profiles, imported curves and settings stay in the app's private storage. Files only come in or go out through the system file picker or the clipboard.
 
-## Building and testing
+## Running the tests
 
 ```sh
 ./gradlew testDebugUnitTest lintDebug assembleDebug

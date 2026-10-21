@@ -8,8 +8,8 @@ android {
         applicationId = "com.wellmosphere.freedsp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
-        versionName = "0.5.5"
+        versionCode = 17
+        versionName = "0.6.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
     buildFeatures { compose = true }
@@ -17,6 +17,17 @@ android {
     kotlinOptions { jvmTarget = "17" }
     lint { abortOnError = true }
     // Optional: sign debug builds with a key kept outside the repo, so updates install over each other. Never commit it.
+    // Public releases are signed with a private key from the environment; without it, release builds are unsigned.
+    val releaseKey = providers.environmentVariable("FREEDSP_RELEASE_KEYSTORE")
+    if (releaseKey.isPresent) {
+        signingConfigs.create("release") {
+            storeFile = file(releaseKey.get())
+            storePassword = providers.environmentVariable("FREEDSP_RELEASE_PASSWORD").get()
+            keyAlias = providers.environmentVariable("FREEDSP_RELEASE_ALIAS").get()
+            keyPassword = storePassword
+        }
+        buildTypes.getByName("release").signingConfig = signingConfigs.getByName("release")
+    }
     val debugKey = providers.environmentVariable("FREEDSP_DEBUG_KEYSTORE")
     if (debugKey.isPresent) {
         signingConfigs.getByName("debug") {
