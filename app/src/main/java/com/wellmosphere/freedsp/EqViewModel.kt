@@ -197,15 +197,6 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
     fun select(index: Int) = _state.update { it.copy(selected = index) }
     fun updateBand(index: Int, band: Band) { _state.update { it.copy(selected = index) }; edit { it.withBand(index, band) } }
     fun setGain(index: Int, gainDb: Double) = edit { it.withBand(index, it.bands[index].copy(gainDb = gainDb)) }
-    /** On a preset this is just the Flat preset; on a profile it clears the bands, with Undo. */
-    fun flatten() {
-        val s = _state.value
-        if (s.preset != null) return applyPreset(Presets.FLAT)
-        val before = snapshot(s.active)
-        replaceActive(s.eq.flattened())
-        offerUndo(before, "Reset \"${s.active}\" to flat.")
-    }
-
     private fun edit(change: (Eq) -> Eq) {
         val eq = change(_state.value.eq).withSafePreamp()
         val preset = _state.value.preset ?: return replaceActive(eq, animate = false)
@@ -280,7 +271,7 @@ class EqViewModel(app: Application) : AndroidViewModel(app) {
         return generateSequence(1) { it + 1 }.map { if (it == 1) base else "$base $it" }.first { it !in names }
     }
 
-    // ---- undo, for the steps that replace a profile's sound ----
+    // ---- undo, for auto-fit replacing a profile's sound ----
 
     /** Where you were, and what profile [profile] held (null if it didn't exist yet). */
     private class Snapshot(val preset: String?, val presetEq: Eq, val active: String, val profile: String, val profileEq: Eq?)

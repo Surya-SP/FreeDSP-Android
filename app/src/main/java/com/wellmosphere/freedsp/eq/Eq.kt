@@ -16,7 +16,6 @@ data class Eq(val bands: List<Band>, val preampDb: Double = 0.0) {
     fun withBand(index: Int, band: Band) = copy(bands = bands.toMutableList().also { it[index] = Limits.clamp(band) })
     fun withPreamp(db: Double) = copy(preampDb = Limits.clampPreamp(db))
     /** Same frequencies, shapes and widths, nothing boosted or cut. */
-    fun flattened() = Eq(bands.map { it.copy(gainDb = 0.0) })
     /** Bands at 0 dB do nothing whatever their type, Q or frequency, so only the active ones (and the preamp) count. */
     fun soundsLike(other: Eq) = preampDb == other.preampDb && active() == other.active()
     private fun active() = bands.filter { it.gainDb != 0.0 }.sortedBy { it.freqHz }

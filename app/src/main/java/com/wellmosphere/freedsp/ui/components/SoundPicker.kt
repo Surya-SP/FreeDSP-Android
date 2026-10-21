@@ -91,7 +91,7 @@ fun SoundPicker(
                 when {
                     !onPreset -> active
                     presetEdited -> "Save your changes"
-                    else -> if (profiles.isEmpty()) "Profiles" else "Profiles · ${profiles.size}"
+                    else -> "Profiles"
                 },
                 lit = !onPreset, playing = !onPreset && currentOnCable, open = open,
                 hint = onPreset && presetEdited, onClick = { open = true },

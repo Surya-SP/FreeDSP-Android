@@ -177,9 +177,6 @@ fun EqScreen(state: UiState, vm: EqViewModel, onAllowAccess: () -> Unit, onImpor
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
-                    TextButton(onClick = vm::flatten) { Text("Reset to flat", color = Palette.Muted) }
-                }
                 FitPanel(state, vm, onImport = { onImport(it) })
             }
             Spacer(Modifier.height(104.dp))
